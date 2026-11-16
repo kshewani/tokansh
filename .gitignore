@@ -1,0 +1,75 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+secrets/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+backend/.venv/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+data/
+runtime/
+ledger-data/
+wallets/
+crypto-config/
+channel-artifacts/
+
+# Docker overrides
+docker-compose.override.yml
+
+# Backup archives
+*.tar
+*.tar.gz
+*.zip
