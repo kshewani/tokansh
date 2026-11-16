@@ -1,0 +1,4 @@
+# Application database layer (ADR-003, ADR-009). Other backend modules add their own dependencies.
+SQLAlchemy>=2.0,<3
+alembic>=1.13
+pytest>=8

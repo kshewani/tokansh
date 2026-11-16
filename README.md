@@ -208,6 +208,8 @@ tokansh/
 |   |-- UI_DESIGN_GUIDELINES.md
 |   |-- TEST_STRATEGY.md
 |   |-- DEMO_SCRIPT.md
+|   |-- DATABASE.md
+|   |-- DATABASE_REFERENCE.md
 |
 |-- frontend/
 |-- backend/
@@ -429,6 +431,8 @@ No cloud infrastructure should be provisioned without explicit cost review.
 | `UI_DESIGN_GUIDELINES.md` | UI and UX standards |
 | `TEST_STRATEGY.md` | Test plan and quality gates |
 | `DEMO_SCRIPT.md` | Hackathon demonstration plan |
+| `DATABASE.md` | Application database design and open decisions |
+| `DATABASE_REFERENCE.md` | Generated schema reference and DML playbook |
 
 All documentation must remain consistent with `DECISIONS.md`.
 
