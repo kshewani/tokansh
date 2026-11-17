@@ -203,6 +203,7 @@ tokansh/
 |   |-- DOMAIN_MODEL.md
 |   |-- BUSINESS_RULES.md
 |   |-- DRUNIX_INTEGRATION.md
+|   |-- DRUNIX_PLATFORM_CONTRIBUTION.md
 |   |-- DECISIONS.md
 |   |-- API_CONTRACTS.md
 |   |-- UI_DESIGN_GUIDELINES.md
@@ -425,7 +426,8 @@ No cloud infrastructure should be provisioned without explicit cost review.
 | `ARCHITECTURE.md` | Technical architecture |
 | `DOMAIN_MODEL.md` | Domain entities and relationships |
 | `BUSINESS_RULES.md` | Business and financial invariants |
-| `DRUNIX_INTEGRATION.md` | DRUNIX architecture and integration research |
+| `DRUNIX_INTEGRATION.md` | DRUNIX architecture and integration research, including the proposed event replay capability |
+| `DRUNIX_PLATFORM_CONTRIBUTION.md` | Proposed reusable DRUNIX platform contribution, feasibility gates, PR scope and demonstration plan |
 | `DECISIONS.md` | Accepted architectural decisions |
 | `API_CONTRACTS.md` | Application API specifications |
 | `UI_DESIGN_GUIDELINES.md` | UI and UX standards |
