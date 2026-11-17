@@ -44,7 +44,8 @@ def create_app(settings: Settings | None = None, ledger: LedgerPort | None = Non
     app.state.sessionmaker = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     app.state.ledger = ledger if ledger is not None else GatewayLedgerClient(settings)
 
-    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
+                       allow_origin_regex=settings.cors_origin_regex, allow_credentials=True,
                        allow_methods=["*"], allow_headers=["*"],
                        expose_headers=["X-Correlation-ID"])
 

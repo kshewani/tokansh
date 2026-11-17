@@ -66,7 +66,7 @@ function Login(){
       </div>
       <Button type="submit" className="mt-5 w-full" disabled={busy}>{busy?'Signing in…':'Enter demo workspace'} <ArrowRight size={17}/></Button>
       {error&&<InlineError message={error}/>}
-      {!backendReady&&!error&&<p className="mt-3 text-xs text-amber-800">Checking the TokANSH API… sign-in needs the backend running.</p>}
+      {!backendReady&&!error&&<p className="mt-3 text-xs text-amber-800">Connecting to the TokANSH API… a sleeping free server can take up to a minute to wake up.</p>}
      </form>
     </Card>
     <div className="mt-5"><TrustNotice compact/></div>

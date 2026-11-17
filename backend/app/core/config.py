@@ -20,6 +20,8 @@ class Settings:
     app_env: str = "development"
     database_url: str = "sqlite:///./data/tokansh.db"
     cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:5173"])
+    # Optional regex for extra allowed origins, e.g. Vercel preview URLs: https://.*\.vercel\.app
+    cors_origin_regex: str | None = None
     # Base URL of the TokANSH Go gateway adapter (private interface). Empty = not configured.
     drunix_gateway_url: str = ""
     drunix_channel: str = "mychannel"
@@ -37,6 +39,7 @@ class Settings:
             app_env=os.environ.get("APP_ENV", "development"),
             database_url=os.environ.get("DATABASE_URL", "sqlite:///./data/tokansh.db"),
             cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
+            cors_origin_regex=os.environ.get("CORS_ORIGIN_REGEX") or None,
             drunix_gateway_url=os.environ.get("DRUNIX_GATEWAY_URL", "").rstrip("/"),
             drunix_channel=os.environ.get("DRUNIX_CHANNEL", "mychannel"),
             drunix_chaincode=os.environ.get("DRUNIX_CHAINCODE", "tokansh"),

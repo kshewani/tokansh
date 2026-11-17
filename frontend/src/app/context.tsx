@@ -47,7 +47,7 @@ export function AppProvider({children}: {children: ReactNode}) {
   useEffect(() => { setDemoUser(session?.userId ?? null); }, [session]);
 
   const health = useQuery({queryKey: ['system-status'], queryFn: () => api<SystemStatus>(route.status).then(r => r.data),
-    refetchInterval: 20000, retry: 0});
+    refetchInterval: 20000, retry: 3, retryDelay: 5000});  // free hosts can take ~1 min to wake up
   const ledgerStatus = health.data?.components.find(c => c.name === 'DRUNIX gateway adapter')?.status ?? 'UNAVAILABLE';
 
   const mutation = useMutation({

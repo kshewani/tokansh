@@ -1,0 +1,24 @@
+# Render Blueprint for the TokANSH API (free plan, for testing).
+# Free instances sleep after ~15 minutes idle and their disk is not persistent:
+# the SQLite demo database is recreated (empty + demo users) after each restart.
+# DRUNIX_GATEWAY_URL is not set, so ledger operations fail safely with LEDGER_UNAVAILABLE.
+services:
+  - type: web
+    name: tokansh-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash scripts/start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: APP_ENV
+        value: hosted-test
+      - key: CORS_ORIGINS
+        sync: false            # your Vercel URL, e.g. https://tokansh.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: https://.*\.vercel\.app
+      - key: MAX_LTV_BPS
+        value: "6000"
