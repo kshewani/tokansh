@@ -384,3 +384,59 @@ Do not begin the TokANSH real adapter before Phase 1 has produced a successful, 
 8. DRUNIX module definition (`go.mod`): https://github.com/npci/drunix/blob/main/go.mod
 
 **Research limitation:** public repository documentation and samples establish a useful integration path, but they do not establish the configuration, operational guarantees or support commitments of the specific hackathon network. Revalidate every version- and environment-sensitive detail before implementation.
+
+
+## 17. Proposed DRUNIX platform contribution: reliable event replay
+
+TokANSH has a separate contribution objective: identify and implement a reusable improvement to DRUNIX itself, then submit it to NPCI's public repository. This must be a platform-level contribution, not merely TokANSH-specific chaincode or application functionality.
+
+### 17.1 Recommended candidate
+
+**Proposed capability:** durable, checkpoint-based chaincode event replay and recovery.
+
+DRUNIX already contains chaincode event infrastructure, a Gateway `ChaincodeEvents` API, ledger event iteration and configurable event publishers. The proposed contribution is not basic event support. It is reliable recovery of event publication after a peer restart or temporary publisher/broker outage.
+
+In the public source inspected on 17 November 2026, `core/peer/channel.go` initializes its event iterator using the current blockchain height. This appears to leave a missed-event risk for blocks committed while the publisher/peer was unavailable. The description of upstream [PR #22 — AMQP 1.0 chaincode event publisher](https://github.com/npci/drunix/pull/22) also identifies that events committed while a peer is down are not replayed. Revalidate this against the exact pinned DRUNIX version and current PR state; this is not a claim that the gap necessarily remains in every version.
+
+### 17.2 Intended behaviour
+
+- Maintain a durable publishing checkpoint per channel, using the exact block/event cursor semantics supported by DRUNIX.
+- Resume from the last confirmed publishing position after restart.
+- Advance the checkpoint only after the configured publisher confirms success according to its delivery contract.
+- Retry transient failures with bounded backoff.
+- Use stable event identifiers to support consumer deduplication.
+- Expose publishing lag, replay progress, retry and failure observability.
+- Document retention, cleanup, recovery and delivery guarantees.
+
+The target guarantee is **at-least-once delivery**, not exactly-once delivery. A crash after broker acknowledgement but before checkpoint persistence can cause redelivery. Consumers must be able to deduplicate stable event identifiers. Publisher acknowledgement semantics must be defined for each supported publisher.
+
+### 17.3 TokANSH relevance
+
+TokANSH can use ledger events to maintain read models and audit projections for ANSH issuance, ownership transfers, pledges, collateral releases and asset lifecycle history. The ledger remains authoritative; event consumption is a projection/reconciliation mechanism, not a substitute for commit-status confirmation or ledger queries.
+
+### 17.4 Proposed outage/recovery demonstration
+
+1. Start DRUNIX, a supported event broker and a consumer.
+2. Commit transactions that emit chaincode events.
+3. Stop the broker or event publisher.
+4. Continue committing transactions on DRUNIX.
+5. Restore the broker/publisher.
+6. Demonstrate replay from the last confirmed checkpoint.
+7. Show stable event identifiers and safe duplicate handling.
+8. Reconcile the TokANSH portfolio/audit projection against authoritative DRUNIX state.
+
+### 17.5 Implementation gate
+
+Before coding, pin the upstream commit and inspect the channel publisher, event iterator, publisher interfaces, existing Kafka/AMQP implementations, ledger block iterator and tests. Review [PR #22](https://github.com/npci/drunix/pull/22) and newer event-related work. Confirm event ordering, block/event cursor semantics, multiple committing peer behaviour, publisher acknowledgement guarantees, checkpoint storage options and channel lifecycle with the DRUNIX developer and maintainers.
+
+Do not add a new database dependency or couple DRUNIX to TokANSH's application database without a strong upstream architectural reason. Do not duplicate work already merged, under review or planned by maintainers.
+
+### 17.6 PR scope and alternatives
+
+Suggested PR title: `feat(event): add durable checkpoint-based chaincode event replay`.
+
+Initial scope: durable per-channel checkpoint, resume/replay, safe checkpoint advancement, retry/recovery, stable event identity, tests for restart/outage/duplicate delivery, useful metrics/logging and operational documentation.
+
+If replay is already implemented or maintainers consider it too broad, investigate event delivery observability (lag, checkpoint age, retries and failures), event publisher lifecycle hardening, or developer diagnostics tooling. Establish that the alternative is genuinely missing before implementing it.
+
+**Status:** proposal only. No DRUNIX code change or upstream PR has yet been implemented or submitted. See [`DRUNIX_PLATFORM_CONTRIBUTION.md`](DRUNIX_PLATFORM_CONTRIBUTION.md) for the full proposal, acceptance criteria, risks and implementation plan.
