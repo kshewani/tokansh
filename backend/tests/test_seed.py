@@ -25,6 +25,8 @@ def test_seed_never_fabricates_ledger_backed_state(db):
         assert count(db, model) == 0, model.__tablename__
     prop = db.execute(sa.select(m.Property)).scalar_one()
     assert prop.approval_status == "DRAFT" and prop.approved_property_ref is None
+    assert prop.city == "Bengaluru"  # matches the UI's TechPark One (frontend/src/demo/scenario.ts)
+    assert (prop.proposed_supply, prop.proposed_issue_price_minor) == (TECHPARK_SUPPLY, TECHPARK_UNIT_VALUE)
 
 
 def test_seed_figures_match_the_documented_demo(db):

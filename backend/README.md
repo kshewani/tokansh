@@ -15,7 +15,7 @@ backend/
 ├── alembic.ini
 ├── alembic/
 │   ├── env.py                      reads DATABASE_URL; batch mode for SQLite
-│   └── versions/0001_initial_application_schema.py
+│   └── versions/                   0001 initial schema, 0002 issuer proposal
 ├── app/db/
 │   ├── base.py                     declarative base, naming convention, column helpers
 │   ├── types.py                    UTCDateTime
@@ -42,7 +42,7 @@ pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./data/tokansh.db   # the default if unset
 alembic upgrade head                              # creates data/tokansh.db with all 26 tables
 python -m scripts.seed_demo                       # 4 demo users + simulated REIT holdings
-pytest                                            # 56 tests
+pytest                                            # 60 tests
 ```
 
 `data/` and `*.db` are already git-ignored.
@@ -69,7 +69,7 @@ All seed data is synthetic. Re-running the seed is safe; existing rows are skipp
 |---|---|
 | Users | Meera (ISSUER), Platform Admin (ADMIN), Aarav (INVESTOR), Demo Lender (LENDER) |
 | REIT holdings | Two invented REITs for Aarav, flagged simulated |
-| `--with-property` | TechPark One as `DRAFT`, ₹100 crore, with three document references and two valuations |
+| `--with-property` | TechPark One (Bengaluru) as `DRAFT`, ₹100 crore, proposing 100,000 ANSH at ₹10,000, with three document references and two valuations |
 
 The seed never creates issuances, positions, pledges, listings or ledger operations. Those rows may only follow a real DRUNIX commit, and a test asserts the seed leaves them empty.
 

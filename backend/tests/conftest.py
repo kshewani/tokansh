@@ -37,8 +37,9 @@ def world(db):
     aarav = m.User(full_name="Aarav", email="aarav@x.example", role=UserRole.INVESTOR)
     lender = m.User(full_name="Lender", email="lender@x.example", role=UserRole.LENDER)
     db.add_all([meera, aarav, lender]); db.flush()
-    prop = m.Property(property_name="TechPark One", property_type="OFFICE", address="a", city="Pune",
+    prop = m.Property(property_name="TechPark One", property_type="OFFICE", address="a", city="Bengaluru",
                       country="India", illustrative_valuation_minor=SUPPLY * UNIT, issuer_id=meera.id,
+                      proposed_supply=SUPPLY, proposed_issue_price_minor=UNIT,
                       approval_status="APPROVED", approved_supply=SUPPLY, approved_property_ref="TP1",
                       drunix_registration_transaction_id="tx-reg", ledger_registered_at=NOW)
     db.add(prop); db.flush()

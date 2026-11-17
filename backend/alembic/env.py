@@ -45,11 +45,26 @@ def run_migrations_online() -> None:
     _ensure_sqlite_dir(url)
     engine = make_engine(url)
     with engine.connect() as connection:
+        sqlite = connection.dialect.name == "sqlite"
+        if sqlite:
+            # Batch mode alters a SQLite table by copying it and dropping the original. With foreign
+            # keys on, that drop fails as soon as another table references a row. Switch them off for
+            # the migration (this pragma is ignored inside a transaction, so it runs first) and verify
+            # every reference afterwards instead.
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
         # render_as_batch lets later migrations alter tables on SQLite.
         context.configure(connection=connection, target_metadata=target_metadata,
                           render_as_batch=True, render_item=render_item, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
+            if sqlite:
+                broken = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+                if broken:
+                    raise RuntimeError(f"migration left broken foreign keys: {broken[:5]}")
+        if sqlite:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
 
 
 if context.is_offline_mode():

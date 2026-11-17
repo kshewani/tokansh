@@ -88,6 +88,27 @@ def test_unapproved_property_cannot_hold_a_ledger_reference(db, world):
                             drunix_registration_transaction_id="tx-r2", ledger_registered_at=NOW))
 
 
+def draft(w, **kw):
+    base = dict(property_name="P", property_type="OFFICE", address="a", city="c", country="India",
+                illustrative_valuation_minor=1, issuer_id=w["meera"].id)
+    return m.Property(**{**base, **kw})
+
+
+def test_draft_property_may_omit_its_proposal(db, world):
+    db.add(draft(world)); db.flush(); db.rollback()
+
+
+def test_property_cannot_be_submitted_without_supply_and_price(db, world):
+    rejected(db, draft(world, approval_status="SUBMITTED"))
+    rejected(db, draft(world, approval_status="SUBMITTED", proposed_supply=100))
+    rejected(db, draft(world, approval_status="SUBMITTED", proposed_issue_price_minor=UNIT))
+
+
+def test_proposed_supply_and_price_must_be_positive(db, world):
+    rejected(db, draft(world, proposed_supply=0))
+    rejected(db, draft(world, proposed_issue_price_minor=-1))
+
+
 # ---- ownership (Rules 4.2, 4.3) ----
 
 def test_available_is_owned_minus_pledged(db, world):

@@ -49,6 +49,8 @@ Real-estate asset (DOMAIN_MODEL 2.2). Onboarding and approval are application st
 | `issuer_id` | varchar(36) | no |  | → `users.id` |
 | `verification_status` | enum `VerificationStatus` | no | `PENDING` |  |
 | `approval_status` | enum `PropertyStatus` | no | `DRAFT` |  |
+| `proposed_supply` | bigint | yes |  |  |
+| `proposed_issue_price_minor` | bigint | yes |  | paise |
 | `approved_supply` | bigint | yes |  |  |
 | `approved_property_ref` | varchar(64) | yes |  |  |
 | `drunix_registration_transaction_id` | varchar(128) | yes |  |  |
@@ -63,7 +65,10 @@ Rules enforced by the database:
 
 - `ck_properties_approved_supply_positive`: `approved_supply IS NULL OR approved_supply > 0`
 - `ck_properties_ledger_registration_evidence`: `(approved_property_ref IS NULL AND drunix_registration_transaction_id IS NULL AND ledger_registered_at IS NULL) OR (approved_property_ref IS NOT NULL AND drunix_registration_transaction_id IS NOT NULL AND ledger_registered_at IS NOT NULL)`
+- `ck_properties_proposed_price_positive`: `proposed_issue_price_minor IS NULL OR proposed_issue_price_minor > 0`
+- `ck_properties_proposed_supply_positive`: `proposed_supply IS NULL OR proposed_supply > 0`
 - `ck_properties_registered_only_if_approved`: `approved_property_ref IS NULL OR approval_status = 'APPROVED' OR approval_status = 'SUSPENDED'`
+- `ck_properties_submitted_needs_proposal`: `approval_status = 'DRAFT' OR (proposed_supply IS NOT NULL AND proposed_issue_price_minor IS NOT NULL)`
 - `ck_properties_valuation_currency_iso`: `length(valuation_currency) = 3 AND valuation_currency = upper(valuation_currency)`
 - `ck_properties_valuation_positive`: `illustrative_valuation_minor > 0`
 
@@ -815,9 +820,11 @@ followed by the main read queries. Source: `backend/sql/dml_playbook.sql`, execu
 
 Meera creates TechPark One as a draft, attaches document references and submits it. Nothing touches DRUNIX.
 
+The issuer proposes 100,000 ANSH at INR 10,000 each; the reviewer fixes the approved supply later.
+
 ```sql
-INSERT INTO properties (id, property_name, property_type, address, city, country, illustrative_valuation_minor, issuer_id)
-VALUES (:property_id, 'TechPark One', 'COMMERCIAL_OFFICE', 'Demo Address, Hinjawadi', 'Pune', 'India', 100000000000, :meera);
+INSERT INTO properties (id, property_name, property_type, address, city, country, illustrative_valuation_minor, proposed_supply, proposed_issue_price_minor, issuer_id)
+VALUES (:property_id, 'TechPark One', 'COMMERCIAL_OFFICE', 'Demo Address, Whitefield', 'Bengaluru', 'India', 100000000000, 100000, 1000000, :meera);
 ```
 
 ```sql

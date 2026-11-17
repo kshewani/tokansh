@@ -61,6 +61,34 @@ def test_migration_downgrades_cleanly(tmp_path):
     assert sa.inspect(make_engine(url)).get_table_names() == ["alembic_version"]
 
 
+def test_migrations_upgrade_a_database_that_already_has_data(tmp_path):
+    """A batch migration rebuilds a SQLite table; referenced rows must survive and stay linked."""
+    url = f"sqlite:///{tmp_path / 'data.db'}"
+    cfg = _alembic(url)
+    command.upgrade(cfg, "0001")
+    engine = make_engine(url)
+    with engine.begin() as c:
+        c.execute(sa.text("INSERT INTO users (id, full_name, email, role) VALUES ('u', 'Meera', 'm@x.example', 'ISSUER')"))
+        c.execute(sa.text(
+            "INSERT INTO properties (id, property_name, property_type, address, city, country, "
+            "illustrative_valuation_minor, issuer_id, approval_status, approved_supply, approved_property_ref, "
+            "drunix_registration_transaction_id, ledger_registered_at) VALUES ('p', 'P', 'OFFICE', 'a', 'c', "
+            "'India', 5, 'u', 'APPROVED', 100, 'REF', 'tx-1', '2026-11-17 00:00:00+00:00')"))
+        c.execute(sa.text(
+            "INSERT INTO ansh_issuances (id, property_id, approved_property_ref, ansh_asset_id, issuer_id, "
+            "approved_supply, requested_quantity, issue_price_minor) VALUES ('i', 'p', 'REF', 'A', 'u', 100, 100, 777)"))
+        c.execute(sa.text("INSERT INTO properties (id, property_name, property_type, address, city, country, "
+                          "illustrative_valuation_minor, issuer_id) VALUES ('d', 'D', 'OFFICE', 'a', 'c', 'India', 5, 'u')"))
+    command.upgrade(cfg, "head")
+    with engine.connect() as c:
+        rows = c.execute(sa.text("SELECT id, proposed_supply, proposed_issue_price_minor FROM properties ORDER BY id")).all()
+        assert [tuple(r) for r in rows] == [("d", None, None), ("p", 100, 777)]  # backfilled from approval and issuance
+        assert c.execute(sa.text("PRAGMA foreign_keys")).scalar() == 1
+        assert c.execute(sa.text("PRAGMA foreign_key_check")).fetchall() == []
+    command.downgrade(cfg, "0001")
+    command.upgrade(cfg, "head")
+
+
 def test_no_binary_floating_point_or_numeric_columns():
     """ADR-015: money is integer minor units; SQLite would store NUMERIC as a float."""
     bad = [f"{t.name}.{c.name}" for t in Base.metadata.tables.values() for c in t.columns

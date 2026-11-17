@@ -70,8 +70,9 @@ def seed(session: Session, with_property: bool = False) -> dict:
     if with_property:
         pid = sid("property:techpark-one")
         if _add(session, m.Property, pid, property_name="TechPark One", property_type="COMMERCIAL_OFFICE",
-                description="Synthetic demonstration property.", address="Demo Address, Hinjawadi",
-                city="Pune", country="India", illustrative_valuation_minor=TECHPARK_VALUATION,
+                description="Synthetic demonstration property.", address="Demo Address, Whitefield",
+                city="Bengaluru", country="India", illustrative_valuation_minor=TECHPARK_VALUATION,
+                proposed_supply=TECHPARK_SUPPLY, proposed_issue_price_minor=TECHPARK_UNIT_VALUE,
                 issuer_id=sid("user:meera"), approval_status=PropertyStatus.DRAFT, is_synthetic=True):
             created["properties"] += 1
             session.flush()

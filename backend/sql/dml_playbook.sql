@@ -11,8 +11,9 @@
 
 -- ## 1. Property onboarding (application workflow)
 -- Meera creates TechPark One as a draft, attaches document references and submits it. Nothing touches DRUNIX.
-INSERT INTO properties (id, property_name, property_type, address, city, country, illustrative_valuation_minor, issuer_id)
-VALUES (:property_id, 'TechPark One', 'COMMERCIAL_OFFICE', 'Demo Address, Hinjawadi', 'Pune', 'India', 100000000000, :meera);
+-- The issuer proposes 100,000 ANSH at INR 10,000 each; the reviewer fixes the approved supply later.
+INSERT INTO properties (id, property_name, property_type, address, city, country, illustrative_valuation_minor, proposed_supply, proposed_issue_price_minor, issuer_id)
+VALUES (:property_id, 'TechPark One', 'COMMERCIAL_OFFICE', 'Demo Address, Whitefield', 'Bengaluru', 'India', 100000000000, 100000, 1000000, :meera);
 
 INSERT INTO property_documents (id, property_id, document_type, document_name, document_reference)
 VALUES (:document_id, :property_id, 'TITLE_DEED', 'Title deed (synthetic)', 'demo://techpark-one/title_deed');

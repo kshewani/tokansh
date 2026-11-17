@@ -13,6 +13,13 @@ class Property(Base):
         currency_check("valuation_currency"),
         sa.CheckConstraint("illustrative_valuation_minor > 0", name="valuation_positive"),
         sa.CheckConstraint("approved_supply IS NULL OR approved_supply > 0", name="approved_supply_positive"),
+        sa.CheckConstraint("proposed_supply IS NULL OR proposed_supply > 0", name="proposed_supply_positive"),
+        sa.CheckConstraint("proposed_issue_price_minor IS NULL OR proposed_issue_price_minor > 0",
+                           name="proposed_price_positive"),
+        # The issuer's proposal may be incomplete while drafting, but not once it goes for review.
+        sa.CheckConstraint("approval_status = 'DRAFT' OR "
+                           "(proposed_supply IS NOT NULL AND proposed_issue_price_minor IS NOT NULL)",
+                           name="submitted_needs_proposal"),
         # The ledger reference exists only with the genuine DRUNIX registration evidence.
         sa.CheckConstraint(
             "(approved_property_ref IS NULL AND drunix_registration_transaction_id IS NULL "
@@ -38,7 +45,10 @@ class Property(Base):
     issuer_id = fk("users.id")
     verification_status = enum_col(VerificationStatus, default=VerificationStatus.PENDING)
     approval_status = enum_col(PropertyStatus, default=PropertyStatus.DRAFT, index=True)
-    approved_supply = quantity(nullable=True)  # issuance constraint fixed at approval
+    # The issuer's proposal (POST /properties): total ANSH and price per ANSH, in valuation_currency.
+    proposed_supply = quantity(nullable=True)
+    proposed_issue_price_minor = money(nullable=True)
+    approved_supply = quantity(nullable=True)  # issuance constraint fixed at approval; may differ from the proposal
     approved_property_ref = text(64, nullable=True)
     drunix_registration_transaction_id = text(128, nullable=True)
     ledger_registered_at = timestamp()

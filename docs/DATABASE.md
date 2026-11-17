@@ -17,11 +17,11 @@ This change adds:
 | Area | Delivered |
 |---|---|
 | Models | 26 SQLAlchemy 2 tables in `backend/app/db/models/` |
-| Migration | `backend/alembic/versions/0001_initial_application_schema.py` (upgrade and downgrade) |
+| Migrations | `0001_initial_application_schema.py`, then `0002_property_issuer_proposal.py`, in `backend/alembic/versions/` (each upgrades and downgrades) |
 | Rules in the database | 110+ CHECK constraints, unique keys and foreign keys that encode the business rules |
 | Seed | `backend/scripts/seed_demo.py`: synthetic users, REIT holdings and an optional draft property |
 | DML playbook | `backend/sql/dml_playbook.sql`: every insert and update of the demo journey |
-| Tests | 56 tests: structure, migration, invariants, seed, and the playbook run end to end |
+| Tests | 60 tests: structure, migration, invariants, seed, and the playbook run end to end |
 
 All 17 entities of `DOMAIN_MODEL.md` are covered. Nine tables are additions the documents call for but do not list; section 6 explains each.
 
@@ -168,9 +168,18 @@ These rules span several rows or need the ledger, so the backend services own th
 - SQLite allows one writer at a time. WAL mode and a 5-second busy timeout are set; that suits the demo, not concurrent load.
 - Nothing here has run against a live DRUNIX network. The playbook tests use stand-in transaction ids to exercise the SQL.
 
-## 10. Changing the schema
+## 10. Change log
+
+| Migration | Change |
+|---|---|
+| `0001` | Initial schema: 26 tables |
+| `0002` | `properties` gains `proposed_supply` and `proposed_issue_price_minor`, the issuer's proposal sent by the UI's new-property form. Both may be empty on a `DRAFT` and are required from submission onward; the reviewer still fixes `approved_supply`, which may differ. Existing rows are backfilled from the approved supply and issue price. The demo property moves to Bengaluru to match the UI. |
+
+## 11. Changing the schema
 
 1. Edit the models in `backend/app/db/models/`.
 2. `alembic revision --autogenerate -m "describe the change"` and review the generated file.
 3. `python -m scripts.gen_db_reference` to refresh the reference.
 4. `pytest`. The suite fails if the migration and models differ or the reference is stale.
+
+On SQLite, migrations run with foreign keys switched off so batch mode can rebuild a referenced table, then check every reference before finishing (`alembic/env.py`). A migration that would leave a broken reference fails instead of committing.
