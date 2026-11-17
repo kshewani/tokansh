@@ -335,6 +335,7 @@ reconciled by transaction id instead of being blindly retried (ADR-011).
 | `chaincode` | varchar(64) | yes |  |  |
 | `function_name` | varchar(64) | yes |  |  |
 | `request_hash` | varchar(64) | yes |  |  |
+| `request_payload` | varchar(None) | yes |  |  |
 | `transaction_id` | varchar(128) | yes |  |  |
 | `drunix_network_reference` | varchar(128) | yes |  |  |
 | `status` | enum `OperationStatus` | no | `CREATED` |  |

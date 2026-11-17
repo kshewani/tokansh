@@ -1,4 +1,10 @@
-# Application database layer (ADR-003, ADR-009). Other backend modules add their own dependencies.
+# TokANSH backend (ADR-003). Application database layer: SQLAlchemy + Alembic (ADR-009).
 SQLAlchemy>=2.0,<3
 alembic>=1.13
+# HTTP API
+fastapi>=0.115,<1
+uvicorn>=0.30
+# HTTP client for the Go DRUNIX gateway adapter; also used by FastAPI's TestClient
+httpx>=0.27,<1
+# Tests
 pytest>=8

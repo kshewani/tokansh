@@ -34,6 +34,9 @@ class LedgerOperation(Base):
     chaincode = text(64, nullable=True)
     function_name = text(64, nullable=True)
     request_hash = text(64, nullable=True)  # SHA-256 of the arguments, for audit
+    # Exact arguments sent plus the expected balance changes, as JSON. Used to apply the
+    # projection after commit, to reconcile, and to reconstruct record-date holdings.
+    request_payload = sa.orm.mapped_column(sa.Text, nullable=True)
     transaction_id = text(128, nullable=True)  # exactly as returned by DRUNIX; never generated here
     drunix_network_reference = text(128, nullable=True)
     status = enum_col(OperationStatus, default=OperationStatus.CREATED, index=True)

@@ -53,3 +53,58 @@ def world(db):
                          ledger_operation_id=op.id, ledger_transaction_id="tx-issue", confirmed_at=NOW)
     db.add(iss); db.commit()
     return {"meera": meera, "aarav": aarav, "lender": lender, "property": prop, "issuance": iss, "op": op}
+
+
+# ---------------------------------------------------------------- API fixtures
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.core.config import Settings  # noqa: E402
+from app.main import create_app  # noqa: E402
+from scripts.seed_demo import seed, sid  # noqa: E402
+from tests.fakes.fake_ledger import FakeLedger  # noqa: E402
+
+
+@pytest.fixture()
+def ledger():
+    """TEST-ONLY fake ledger. Never used by the running application."""
+    return FakeLedger()
+
+
+@pytest.fixture()
+def api(tmp_path, ledger):
+    url = f"sqlite:///{tmp_path / 'api.db'}"
+    eng = make_engine(url)
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        seed(s)
+    eng.dispose()
+    settings = Settings(database_url=url, drunix_gateway_url="http://test-only.invalid",
+                        commit_poll_attempts=2, commit_poll_interval_seconds=0)
+    app = create_app(settings, ledger=ledger)
+    with TestClient(app) as client:
+        yield client
+    app.state.engine.dispose()
+
+
+class Actor:
+    """Calls the API as one demonstration user, with a fresh Idempotency-Key per call."""
+
+    def __init__(self, client, key):
+        self.client, self.id = client, sid(f"user:{key}")
+        self._n = 0
+
+    def _h(self, idem=None):
+        self._n += 1
+        return {"X-Demo-User-Id": self.id, "Idempotency-Key": idem or f"{self.id}-{self._n}"}
+
+    def get(self, path, **params):
+        return self.client.get(path, headers=self._h(), params=params)
+
+    def post(self, path, json=None, idem=None):
+        return self.client.post(path, json=json or {}, headers=self._h(idem))
+
+
+@pytest.fixture()
+def people(api):
+    return {k: Actor(api, k) for k in ("meera", "admin", "aarav", "lender")}
