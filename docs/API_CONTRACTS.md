@@ -767,6 +767,22 @@ state.
 7. Document any deliberate deviation from this contract.
 8. Update this document whenever an approved API contract changes.
 
+## 15. Implementation Notes and Deviations
+
+Recorded as required by rule 14.7. Implemented in `backend/app/modules/`.
+
+1. **Demo identity.** The client sends `X-Demo-User-Id`; `POST /demo/active-role` returns the user for a role. Not authentication; roles are enforced per operation. Missing or unknown user -> 401 `AUTHENTICATION_REQUIRED` (new code).
+2. **Idempotency-Key is mandatory** (400 if absent) on: approve, register, issuances, listings, orders, payments, transfers, pledges, release, repayments, distribution payout. Business-error responses are stored and replayed too.
+3. **Two-step purchase.** `POST /marketplace/orders` creates the order (`PAYMENT_PENDING`); `POST /payments/simulate` with `simulated_outcome: SUCCESS | FAILED` runs the simulated payment and, on success, the DRUNIX transfer. A failed payment returns 409 `PAYMENT_FAILED`.
+4. **Ledger outcomes.** 200/201 only after `COMMITTED`; 202 when pending or reconciliation is required; 503 `LEDGER_UNAVAILABLE`, 502 `LEDGER_COMMIT_FAILED` / `LEDGER_SUBMISSION_FAILED`, or 409 with the chaincode's business code when it failed. The body includes the operation and its DRUNIX transaction id when one exists.
+5. **Approval returns 202** when approval succeeded but DRUNIX registration did not commit. `POST /properties/{id}/register` (new) retries only after a definitive failure.
+6. **Added endpoints:** `POST /properties/{id}/documents`, `POST /properties/{id}/register`, `GET /marketplace/orders`, `GET /collateral/pledges`, `GET /loans`, `POST /loans/{id}/reject`, `GET /assets/events`, `GET /ledger/operations`, `POST /ledger/operations/{id}/reconcile`, `GET /reconciliation/cases`.
+7. **New error codes:** `AUTHENTICATION_REQUIRED`, `LTV_LIMIT_EXCEEDED`, `REPAYMENT_EXCEEDS_OUTSTANDING`, `LEDGER_QUERY_FAILED`, `INTERNAL_ERROR`.
+8. **One issuance per property** in the MVP; a definitively failed issuance can be retried on the same record.
+9. **Record date.** Entitlements use holdings committed up to the end of the record date (UTC), reconstructed from committed ledger operations and verified against the confirmed issued supply. Calculation is refused before the record date; on the record date itself the cut-off is the calculation time, which is recorded. Pending team confirmation.
+10. **Who approves.** ADMIN or ISSUER may approve a property, matching the demo script ("Issuer approves"). Segregating issuer and approver is a team decision.
+11. **Not implemented yet (Priority 2):** `/dashboard/*` beyond `summary`, `/assets/{id}/valuation|analytics|performance|lifecycle`.
+
 ---
 
 **End of API Contracts**

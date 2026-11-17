@@ -3,12 +3,12 @@ import {Navigate,Outlet,Route,Routes,useNavigate} from 'react-router-dom';
 import type {ReactNode} from 'react';
 import {ArrowRight,Building2,LockKeyhole,ShieldCheck} from 'lucide-react';
 import {useApp} from './app/context';
-import type {Role} from './demo/scenario';
-import {roleOptions} from './demo/scenario';
+import type {Role} from './lib/session';
+import {roleOptions} from './lib/session';
 import {Shell} from './components/Shell';
 import {Button} from './components/ui/button';
 import {Card} from './components/ui/card';
-import {PreviewWarning} from './components/ui/status';
+import {InlineError,TrustNotice} from './components/ui/status';
 import {Overview,Portfolio} from './pages/Overview';
 import {Registry,Issuance,Marketplace} from './pages/RealEstate';
 import {Collateral,Lending} from './pages/Finance';
@@ -16,23 +16,27 @@ import {Distributions,Audit,Intelligence,System} from './pages/Supporting';
 
 /** UI navigation only. Production identity and authorization belong to Python APIs. */
 function RequireDemoSession(){
- const {demoSession}=useApp();
- return demoSession?<Outlet/>:<Navigate to="/login" replace/>;
+ const {session}=useApp();
+ return session?<Outlet/>:<Navigate to="/login" replace/>;
 }
 function Guard({roles,children}:{roles:Role[];children:ReactNode}){
  const {role}=useApp();
  return roles.includes(role)?<>{children}</>:<Navigate to="/overview" replace/>;
 }
 function Login(){
- const {demoSession,role,login}=useApp();
+ const {session,role,login,backendReady}=useApp();
  const [selectedRole,setSelectedRole]=useState<Role>(role);
+ const [error,setError]=useState<string|null>(null);
+ const [busy,setBusy]=useState(false);
  const navigate=useNavigate();
- if(demoSession)return <Navigate to="/overview" replace/>;
+ if(session)return <Navigate to="/overview" replace/>;
  const selected=roleOptions.find(item=>item.role===selectedRole);
- function enter(event:React.FormEvent<HTMLFormElement>){
+ async function enter(event:React.FormEvent<HTMLFormElement>){
   event.preventDefault();
-  login(selectedRole);
-  navigate('/overview',{replace:true});
+  setBusy(true);setError(null);
+  try{await login(selectedRole);navigate('/overview',{replace:true});}
+  catch(e){setError(e instanceof Error?e.message:'Sign-in failed.');}
+  finally{setBusy(false);}
  }
  return <main className="grid min-h-screen grid-cols-1 bg-[#F4F6F9] lg:grid-cols-[.9fr_1.1fr]">
   <section className="flex min-h-[290px] flex-col justify-between bg-[#102B4E] px-7 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
@@ -42,7 +46,7 @@ function Login(){
     <p className="mt-5 max-w-md text-sm leading-7 text-blue-100/80">A professional workspace for fractional real estate interests, portfolio visibility, issuance, collateral and lifecycle tracking.</p>
     <div className="mt-9 grid gap-4 text-sm text-blue-100/90"><div className="flex items-center gap-3"><Building2 size={18} className="text-blue-200"/> Property and ANSH lifecycle</div><div className="flex items-center gap-3"><ShieldCheck size={18} className="text-blue-200"/> Distinct transaction and ledger states</div><div className="flex items-center gap-3"><LockKeyhole size={18} className="text-blue-200"/> Institution-ready role experiences</div></div>
    </div>
-   <p className="text-xs text-blue-100/60">Frontend-only UI preview · No real payments or ledger operations</p>
+   <p className="text-xs text-blue-100/60">Synthetic demonstration · Simulated payments and lending · ANSH ledger on DRUNIX</p>
   </section>
   <section className="flex items-center justify-center px-5 py-9 sm:px-8 lg:p-12">
    <div className="w-full max-w-[470px]">
@@ -60,11 +64,13 @@ function Login(){
       <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
        <strong className="text-[#102B4E]">Selected role: </strong>{selected?.label}
       </div>
-      <Button type="submit" className="mt-5 w-full">Enter demo workspace <ArrowRight size={17}/></Button>
+      <Button type="submit" className="mt-5 w-full" disabled={busy}>{busy?'Signing in…':'Enter demo workspace'} <ArrowRight size={17}/></Button>
+      {error&&<InlineError message={error}/>}
+      {!backendReady&&!error&&<p className="mt-3 text-xs text-amber-800">Checking the TokANSH API… sign-in needs the backend running.</p>}
      </form>
     </Card>
-    <div className="mt-5"><PreviewWarning compact/></div>
-    <p className="mt-4 text-center text-xs leading-5 text-slate-500">This is a session-based preview gate, not password authentication. Secure identity and access checks will be handled by the Python backend.</p>
+    <div className="mt-5"><TrustNotice compact/></div>
+    <p className="mt-4 text-center text-xs leading-5 text-slate-500">Demonstration sign-in, not password authentication. The backend enforces each role's permissions.</p>
    </div>
   </section>
  </main>;

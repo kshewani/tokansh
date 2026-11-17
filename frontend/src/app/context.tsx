@@ -1,47 +1,104 @@
-import {createContext,useContext,useMemo,useState} from 'react';
+import {createContext, useContext, useEffect, useState} from 'react';
 import type {ReactNode} from 'react';
-import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {request,realBackendConfigured,idempotency} from '../api/transport';
+import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
+import {api, ApiError, newIdempotencyKey, setDemoUser} from '../api/client';
 import {route} from '../api/contracts';
-import type {SystemStatus} from '../api/contracts';
-import type {Role,Phase} from '../demo/scenario';
-import {scenarioProperty,scenarioHoldings,scenarioEvents,scenarioEntitlement} from '../demo/scenario';
-import {readDemoSession,writeDemoSession,clearDemoSession} from '../demo/session';
-type Message={kind:'error'|'info'|'submitted';text:string}|null;
-type Context={
- role:Role;demoSession:Role|null;login:(v:Role)=>void;logout:()=>void;phase:Phase;setPhase:(v:Phase)=>void;message:Message;notify:(v:Message)=>void;
- backendReady:boolean;systemStatus:SystemStatus|null;loadingStatus:boolean;
- property:ReturnType<typeof scenarioProperty>;holding:ReturnType<typeof scenarioHoldings>;
- events:ReturnType<typeof scenarioEvents>;entitlement:ReturnType<typeof scenarioEntitlement>;
- submit:(path:string,body:unknown)=>Promise<void>;submitting:boolean;
+import type {DemoUser, LedgerOperation, SystemStatus} from '../api/contracts';
+import type {DemoSession, Role} from '../lib/session';
+import {clearDemoSession, readDemoSession, writeDemoSession} from '../lib/session';
+import {shortRef} from '../lib/format';
+
+export type Message = {kind: 'error' | 'info' | 'success' | 'pending'; text: string} | null;
+type Action = {path: string; body?: unknown; label: string; method?: 'POST' | 'PUT'};
+type Context = {
+  session: DemoSession | null; role: Role; login: (role: Role) => Promise<void>; logout: () => void;
+  message: Message; notify: (m: Message) => void;
+  systemStatus: SystemStatus | null; backendReady: boolean; ledgerStatus: string;
+  run: <T = unknown>(action: Action) => Promise<T | null>; submitting: boolean;
 };
-const ctx=createContext<Context|null>(null);
-export function AppProvider({children}:{children:ReactNode}){
- const [demoSession,setDemoSession]=useState<Role|null>(()=>readDemoSession());
- const [role,setRoleState]=useState<Role>(()=>readDemoSession()||'ISSUER');
- const [phase,setPhase]=useState<Phase>('ONBOARDING');
- const [message,notify]=useState<Message>(null);
- const queryClient=useQueryClient();
- const health=useQuery({queryKey:['system-status'],queryFn:()=>request<SystemStatus>(route.status),enabled:realBackendConfigured,refetchInterval:realBackendConfigured?30000:false,retry:1});
- const mutation=useMutation({
-  mutationFn:({path,body}:{path:string;body:unknown})=>request<{operation_id?:string;status?:string;message?:string}>(path,{method:'POST',body,idempotencyKey:idempotency()}),
-  onSuccess:(data)=>{
-   const committed=data?.status==='COMMITTED';
-   notify({kind:committed?'submitted':'info',text:committed?'Backend reports COMMITTED; independently verify resulting ledger state and balances.':'Request submitted. Await authoritative ledger status before reflecting any ownership changes.'});
-   void queryClient.invalidateQueries();
-  },
-  onError:(error)=>notify({kind:'error',text:error instanceof Error?error.message:'The request could not be completed'})
- });
- const login=(value:Role)=>{writeDemoSession(value);setRoleState(value);setDemoSession(value);setPhase('ONBOARDING');notify(null);};
- const logout=()=>{clearDemoSession();setDemoSession(null);setRoleState('ISSUER');setPhase('ONBOARDING');notify(null);queryClient.clear();};
- const property=useMemo(()=>scenarioProperty(phase),[phase]);
- const holding=useMemo(()=>scenarioHoldings(phase),[phase]);
- const events=useMemo(()=>scenarioEvents(phase),[phase]);
- const entitlement=useMemo(()=>scenarioEntitlement(phase),[phase]);
- async function submit(path:string,body:unknown){
-  if(!realBackendConfigured){notify({kind:'info',text:'UI preview only. This operation requires the Python API and verified DRUNIX connectivity; no ledger state was changed.'});return;}
-  await mutation.mutateAsync({path,body}).catch(()=>undefined);
- }
- return <ctx.Provider value={{role,demoSession,login,logout,phase,setPhase,message,notify,backendReady:realBackendConfigured&&health.isSuccess,systemStatus:health.data||null,loadingStatus:health.isFetching,property,holding,events,entitlement,submit,submitting:mutation.isPending}}>{children}</ctx.Provider>;
+const ctx = createContext<Context | null>(null);
+
+/** Finds the ledger operation in any backend response, so the UI reports finality honestly. */
+export function findOperation(data: unknown): LedgerOperation | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, any>;
+  for (const key of ['operation', 'transfer', 'release_operation', 'pledge_operation']) {
+    if (d[key]?.operation_id) return d[key];
+  }
+  if (d.ledger?.operation?.operation_id) return d.ledger.operation;
+  if (d.operation_id && d.status) return d as LedgerOperation;
+  return null;
 }
-export function useApp(){const value=useContext(ctx);if(!value)throw new Error('AppProvider missing');return value;}
+
+function describe(label: string, status: number, data: unknown, replay: boolean): Message {
+  const op = findOperation(data);
+  const prefix = replay ? '(Repeated request; original result shown.) ' : '';
+  if (op?.status === 'COMMITTED') return {kind: 'success', text: `${prefix}${label}: committed on DRUNIX · tx ${shortRef(op.ledger_transaction_id, 16)}`};
+  if (op && op.status === 'FAILED') return {kind: 'error', text: `${prefix}${label}: application step recorded, but the ledger operation failed (${op.error_code}). ${op.error_message ?? ''}`};
+  if (status === 202 || op) return {kind: 'pending', text: `${prefix}${label}: submitted, outcome not yet confirmed (${op?.status ?? 'PENDING'}). Ownership is unchanged until a confirmed commit.`};
+  return {kind: 'success', text: `${prefix}${label}: done.`};
+}
+
+export function AppProvider({children}: {children: ReactNode}) {
+  const [session, setSession] = useState<DemoSession | null>(() => readDemoSession());
+  const [message, notify] = useState<Message>(null);
+  const queryClient = useQueryClient();
+  setDemoUser(session?.userId ?? null);
+  useEffect(() => { setDemoUser(session?.userId ?? null); }, [session]);
+
+  const health = useQuery({queryKey: ['system-status'], queryFn: () => api<SystemStatus>(route.status).then(r => r.data),
+    refetchInterval: 20000, retry: 0});
+  const ledgerStatus = health.data?.components.find(c => c.name === 'DRUNIX gateway adapter')?.status ?? 'UNAVAILABLE';
+
+  const mutation = useMutation({
+    mutationFn: (a: Action) => api(a.path, {method: a.method || 'POST', body: a.body ?? {}, idempotencyKey: newIdempotencyKey()}),
+  });
+
+  async function run<T>(a: Action): Promise<T | null> {
+    try {
+      const res = await mutation.mutateAsync(a);
+      notify(describe(a.label, res.status, res.data, res.replay));
+      return res.data as T;
+    } catch (e) {
+      const err = e instanceof ApiError ? e : new ApiError(0, 'UNEXPECTED', String(e));
+      notify({kind: 'error', text: `${a.label}: ${err.message} (${err.code})`});
+      return null;
+    } finally {
+      await queryClient.invalidateQueries();
+    }
+  }
+
+  async function login(role: Role) {
+    const res = await api<{user: DemoUser}>(route.demoRole, {method: 'POST', body: {role}});
+    const s = {role, userId: res.data.user.id, name: res.data.user.name};
+    writeDemoSession(s);
+    setDemoUser(s.userId);
+    setSession(s);
+    notify(null);
+    queryClient.clear();
+  }
+  function logout() {
+    clearDemoSession();
+    setDemoUser(null);
+    setSession(null);
+    notify(null);
+    queryClient.clear();
+  }
+
+  return <ctx.Provider value={{session, role: session?.role ?? 'ISSUER', login, logout, message, notify,
+    systemStatus: health.data ?? null, backendReady: health.isSuccess, ledgerStatus, run, submitting: mutation.isPending}}>
+    {children}
+  </ctx.Provider>;
+}
+export function useApp() {
+  const value = useContext(ctx);
+  if (!value) throw new Error('AppProvider missing');
+  return value;
+}
+
+/** GET helper bound to the signed-in demo user. */
+export function useApi<T>(path: string | null, key?: unknown[]) {
+  const {session} = useApp();
+  return useQuery({queryKey: key ?? [path, session?.userId], enabled: !!session && !!path,
+    queryFn: () => api<T>(path as string).then(r => r.data)});
+}

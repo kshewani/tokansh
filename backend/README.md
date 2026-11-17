@@ -1,12 +1,87 @@
-# TokANSH Backend — Application Database
+# TokANSH Backend
 
-This directory currently holds the database layer of the FastAPI backend: models, migrations, seed data, the DML playbook and tests. API routes and services are added by their own modules.
+One FastAPI application (modular monolith, ADR-001) with the application database, the domain modules and the DRUNIX gateway client.
 
 | Read this | For |
 |---|---|
-| [`../docs/DATABASE.md`](../docs/DATABASE.md) | Design, source-of-truth map, rule-to-constraint table, open decisions |
+| [`../docs/API_CONTRACTS.md`](../docs/API_CONTRACTS.md) | Endpoints and conventions (section 15 lists implementation notes and deviations) |
+| [`../docs/GATEWAY_ADAPTER_CONTRACT.md`](../docs/GATEWAY_ADAPTER_CONTRACT.md) | The private HTTP interface the Go DRUNIX adapter must expose |
+| [`../docs/DATABASE.md`](../docs/DATABASE.md) | Database design, source-of-truth map, rule-to-constraint table |
 | [`../docs/DATABASE_REFERENCE.md`](../docs/DATABASE_REFERENCE.md) | Every table, column, constraint and enum, plus all DML |
-| [`sql/dml_playbook.sql`](sql/dml_playbook.sql) | The runnable DML for the demo journey |
+
+## Run the API
+
+From `backend/`, Python 3.11 or newer:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head                 # creates data/tokansh.db
+python -m scripts.seed_demo          # Meera, Admin, Aarav, Lender + simulated REITs
+uvicorn app.main:app --reload        # http://localhost:8000/docs
+```
+
+Configuration comes from environment variables (see `../.env.example`). The important one is
+`DRUNIX_GATEWAY_URL`, the base URL of the Go gateway adapter. **There is no simulator mode.** With the
+variable empty, or the adapter down, every ledger operation fails safely: the operation is recorded as
+`FAILED / LEDGER_UNAVAILABLE`, no transaction id is invented, and ownership does not change.
+
+Then start the frontend (`cd ../frontend && npm install && npm run dev`) and open http://localhost:5173.
+Vite forwards `/api` to `http://localhost:8000`.
+
+## How each flow reaches DRUNIX
+
+| Step | Endpoint | DRUNIX function | Without DRUNIX |
+|---|---|---|---|
+| Onboard, submit | `POST /properties`, `/submit` | none (application only) | works |
+| Approve | `POST /properties/{id}/approve` | `RegisterApprovedProperty` | approval saved, registration `FAILED`, retry with `/register` |
+| Issue | `POST /ansh/issuances` | `IssueANSH` | 503 `LEDGER_UNAVAILABLE`, issuance `FAILED` |
+| List, buy | `POST /marketplace/listings`, `/orders` | `GetPosition` (read) | 503, nothing created |
+| Pay | `POST /payments/simulate` | `TransferANSH` | 503 before any payment is taken |
+| Transfer | `POST /ansh/transfers` | `GetPosition`, `TransferANSH` | 503 |
+| Pledge, release | `POST /collateral/pledges`, `/release` | `PledgeANSH`, `ReleasePledge` | 503 |
+| Loans | `/loans/...` | none (lender simulator) | works once a pledge is active |
+| Distribution | `/distributions/...` | none: reconstructs record-date holdings from committed operations | works once ANSH is issued |
+| Reconcile | `POST /ledger/operations/{id}/reconcile` | commit status by transaction id | 503 |
+
+Demo identity: the client sends `X-Demo-User-Id` (from `POST /api/v1/demo/active-role`). It is not
+authentication; every service still checks the user's role. Consequential operations need an
+`Idempotency-Key` header.
+
+## Code layout
+
+```text
+app/
+├── main.py              create_app(): routers, error envelope, correlation id, CORS
+├── core/                config, errors, money (paise <-> "0.00"), idempotency, audit, deps
+├── ledger/
+│   ├── port.py          LedgerPort interface and result types
+│   ├── gateway_client.py  HTTP client for the Go adapter (the only runtime implementation)
+│   ├── executor.py      write-before-submit, commit evidence, reconciliation, effect handlers
+│   └── projections.py   ownership read model; record-date reconstruction
+├── modules/             one module per domain: properties, issuance, marketplace (+ payments),
+│                        transfers, portfolio, financing (pledges, loans, release),
+│                        distributions, audit_api, system
+└── db/                  models, enums, types, session (unchanged design, see below)
+```
+
+## API tests
+
+| File | Covers |
+|---|---|
+| `test_api_demo_flow.py` | The 11-step demo of AGENTS.md section 8, end to end over HTTP |
+| `test_api_failures.py` | Failed payment, DRUNIX unavailable, unknown outcome + reconciliation, commit failure + refund, idempotency, supply and role checks, pledge and LTV limits, record-date rule, rounding |
+| `test_gateway_client.py` | Mapping of adapter responses: timeouts are UNKNOWN, unreachable is UNAVAILABLE, a commit without a transaction id is never COMMITTED; the running app never uses a test double |
+
+These use `tests/fakes/fake_ledger.py`, a **test-only** stand-in whose transaction ids all start
+with `TEST-ONLY-`. They prove application behaviour, not DRUNIX integration (API_CONTRACTS 13).
+
+`tests/e2e_server.py` starts the API with that fake for automated browser tests of the frontend.
+It refuses to run without `TOKANSH_E2E_TEST=1` and is not a demo mode.
+
+---
+
+# Application database
 
 ## Layout
 
@@ -15,7 +90,7 @@ backend/
 ├── alembic.ini
 ├── alembic/
 │   ├── env.py                      reads DATABASE_URL; batch mode for SQLite
-│   └── versions/                   0001 initial schema, 0002 issuer proposal
+│   └── versions/                   0001 initial schema, 0002 issuer proposal, 0003 ledger payload
 ├── app/db/
 │   ├── base.py                     declarative base, naming convention, column helpers
 │   ├── types.py                    UTCDateTime
@@ -42,7 +117,7 @@ pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./data/tokansh.db   # the default if unset
 alembic upgrade head                              # creates data/tokansh.db with all 26 tables
 python -m scripts.seed_demo                       # 4 demo users + simulated REIT holdings
-pytest                                            # 60 tests
+pytest                                            # 78 tests (60 database + 18 API)
 ```
 
 `data/` and `*.db` are already git-ignored.

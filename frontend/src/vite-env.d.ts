@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 interface ImportMetaEnv {
- readonly VITE_API_MODE?: 'preview'|'real';
- readonly VITE_API_BASE_URL?:string;
+  /** Base URL of the TokANSH API. Empty = same origin (the Vite dev server proxies /api to the backend). */
+  readonly VITE_API_BASE_URL?: string;
 }
-interface ImportMeta {readonly env:ImportMetaEnv;}
+interface ImportMeta {readonly env: ImportMetaEnv;}

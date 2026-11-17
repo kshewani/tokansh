@@ -19,17 +19,25 @@ npm test
 npm run build
 ```
 
-## Implemented preview
+## Connected to the TokANSH API
 
-React UI with a demo-only sign-in gate, logout/switch-account, Admin/Issuer, Investor and Lender navigation, property registry and issuance, marketplace, portfolio, collateral, lending, rental distribution, audit, analytics and system status.
+Every screen reads and writes through the Python API (`src/api/client.ts`); there are no scenario fixtures and no ledger simulation in the frontend.
 
-The illustrative baseline data uses TechPark One at ₹100 crore, 100,000 authorized ANSH at ₹10,000 each, a 500-ANSH investor purchase, a 200-ANSH pledge and 300 remaining available. **No real DRUNIX ledger operations or banking services are claimed.** Scenario stages are UI previews, not committed transactions.
+Run the backend first (see `../backend/README.md`), then:
 
-## Backend integration
+```bash
+npm install
+npm run dev        # http://localhost:5173; /api is proxied to http://localhost:8000
+```
 
-Backend and Go/DRUNIX infrastructure are maintained separately inside the team repository. The frontend API boundary is in `src/api/` but live API integration, authentication and ledger-status verification remain outstanding. The frontend does not have a runtime ledger simulation fallback.
+Set `VITE_API_PROXY_TARGET` to point the proxy elsewhere, or `VITE_API_BASE_URL` to call an API on another origin (the backend must allow it in `CORS_ORIGINS`).
 
-Use `.env.example` to configure local `.env.local`, never commit secrets. A configured API URL alone does not make ledger operations complete.
+- **Sign-in** picks a demo role and gets that user's id from `POST /api/v1/demo/active-role`. Not authentication.
+- **Every consequential action** goes through a confirmation dialog and is sent with a fresh `Idempotency-Key`.
+- **Ledger results** are reported from the operation the API returns: "committed on DRUNIX · tx …" only for `COMMITTED`; pending, reconciliation and failure states are shown as such.
+- **Sources** are labelled on every event: DRUNIX, APPLICATION or SIMULATED.
+
+Without a connected DRUNIX gateway, the off-chain steps work (onboarding, submission, approval record), and ledger steps show `LEDGER_UNAVAILABLE`.
 
 ## Deployment
 

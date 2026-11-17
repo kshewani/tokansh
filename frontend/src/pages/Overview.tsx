@@ -1,57 +1,101 @@
-import {BarChart3,Building2,CheckCircle2,ChevronRight,FileClock,Landmark,PackageCheck,ShieldAlert,ShoppingCart,Wallet} from 'lucide-react';
+import {useState} from 'react';
+import {ChevronRight, FileClock, RefreshCw} from 'lucide-react';
 import {Link} from 'react-router-dom';
-import {CartesianGrid,Line,LineChart,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
-import {useApp} from '../app/context';
-import {phaseIndex,inr,integer,phases,sample} from '../demo/scenario';
-import {Card,Metric,SectionHeading,EmptyState} from '../components/ui/card';
-import {Status} from '../components/ui/status';
+import {useApi, useApp} from '../app/context';
+import {route} from '../api/contracts';
+import type {AssetEvent, Dashboard, Distribution, Page, Portfolio as PortfolioData} from '../api/contracts';
+import {inr, integer, shortRef, when} from '../lib/format';
+import {Card, EmptyState, Metric, SectionHeading} from '../components/ui/card';
 import {Button} from '../components/ui/button';
-const trend=[{month:'Jun',value:95},{month:'Jul',value:96},{month:'Aug',value:97},{month:'Sep',value:98},{month:'Oct',value:99},{month:'Nov',value:100}];
-function QuickLink({to,label}:{to:string;label:string}){return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;}
-export function Overview(){
- const {role,phase,property,holding,events}=useApp();
- const isIssuer=role==='ISSUER',isLender=role==='LENDER';
- return <><SectionHeading title={isIssuer?'Platform Overview':isLender?'Financing Overview':'Investor Dashboard'} description="Institutional visibility across asset records, ANSH lifecycle and portfolio activity." action={<QuickLink to={isIssuer?'/registry':isLender?'/lending':'/marketplace'} label={isIssuer?'Property registry':isLender?'Loan applications':'Explore ANSH'}/>}/>
- <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-  <Metric label="Illustrative property valuation" value={inr(sample.valuation,true)} description="Synthetic scenario · not a market valuation"/>
-  <Metric label="Total ANSH issued" value={integer(property.issued)} description={'Approved supply '+integer(sample.approvedSupply)}/>
-  <Metric label="Investor holdings" value={integer(holding.owned)+' ANSH'} description="Aarav · preview position"/>
-  <Metric label="Pledged ANSH" value={integer(holding.pledged)} description="Transfer-restricted scenario"/>
- </div>
- <div className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
-  <Card title="Indicative asset valuation" description="TechPark One · synthetic ₹ crore data · Jun–Nov 2026" action={<Status value="PREVIEW_ONLY"/>}>
-   <div className="font-financial mb-4 text-2xl font-extrabold text-[#102B4E]">{inr(sample.valuation,true)}</div>
-   <div className="h-52 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{top:12,bottom:2,left:-24,right:8}}><CartesianGrid strokeDasharray="3 5" stroke="#e5ecf2"/><XAxis dataKey="month" fontSize={11} stroke="#718096"/><YAxis domain={[90,105]} tickFormatter={(v:number)=>'₹'+v} stroke="#718096" fontSize={11}/><Tooltip formatter={(v)=>[inr(Number(v)*10000000),'Illustrative value']}/><Line type="monotone" dataKey="value" stroke="#1769AA" strokeWidth={2.5} dot={{r:2}}/></LineChart></ResponsiveContainer></div>
-  </Card>
-  <Card title="Workflow coverage" description="Selected preview scenario · not live ledger progress">
-   <div className="space-y-3">{phases.map((p,i)=><div key={p.id} className="flex items-center gap-3"><span className={'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold '+(i<=phaseIndex(phase)?'bg-blue-100 text-[#1769AA]':'bg-slate-100 text-slate-400')}>{i+1}</span><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-700">{p.label.split('. ')[1]}</p><p className="text-[11px] text-slate-500">{p.description}</p></div><span className="text-[10px] text-slate-400">{i<=phaseIndex(phase)?'Previewed':'Later'}</span></div>)}</div>
-  </Card>
- </div>
- <div className="mt-5 grid gap-5 xl:grid-cols-2">
- <Card title="Business summary" description="Key figures for the approved jury scenario">
-   <div className="grid gap-4 sm:grid-cols-2">
-    <div className="rounded-lg bg-slate-50 p-4"><div className="flex items-center gap-2 text-slate-500"><ShoppingCart size={17}/><span className="text-xs">Purchase scenario</span></div><p className="font-financial mt-2 text-lg font-bold text-[#102B4E]">500 ANSH</p><p className="mt-1 text-xs text-slate-500">{inr(5000000)} · illustrative</p></div>
-    <div className="rounded-lg bg-slate-50 p-4"><div className="flex items-center gap-2 text-slate-500"><Landmark size={17}/><span className="text-xs">Financing illustration</span></div><p className="font-financial mt-2 text-lg font-bold text-[#102B4E]">{inr(sample.loan)}</p><p className="mt-1 text-xs text-slate-500">60% LTV · simulated</p></div>
-    <div className="rounded-lg bg-slate-50 p-4"><div className="flex items-center gap-2 text-slate-500"><Wallet size={17}/><span className="text-xs">Available balance</span></div><p className="font-financial mt-2 text-lg font-bold text-[#102B4E]">{integer(holding.available)} ANSH</p><p className="mt-1 text-xs text-slate-500">Scenario position, not a ledger read</p></div>
-    <div className="rounded-lg bg-slate-50 p-4"><div className="flex items-center gap-2 text-slate-500"><Building2 size={17}/><span className="text-xs">Properties in preview</span></div><p className="font-financial mt-2 text-lg font-bold text-[#102B4E]">1</p><p className="mt-1 text-xs text-slate-500">TechPark One · synthetic</p></div>
-   </div>
- </Card>
- <Card title="Latest lifecycle activity" description="Preview-only events, without DRUNIX transaction identifiers" action={<QuickLink to="/transactions" label="All events"/>}>
-  {events.length? <div className="divide-y divide-slate-100">{events.slice(0,4).map(e=><div key={e.id} className="flex items-start gap-3 py-3"><div className="mt-1 rounded-lg bg-slate-100 p-2 text-[#1769AA]"><FileClock size={16}/></div><div className="flex-1"><p className="text-xs font-semibold text-slate-700">{e.description}</p><p className="mt-1 text-[11px] text-slate-500">{e.actor} · {e.kind}</p></div><Status value="PREVIEW_ONLY"/></div>)}</div>:<EmptyState title="No events yet" description="Select another preview scenario to see illustrative lifecycle activity."/>}
- </Card>
- </div>
- </>;
+import {Loading, QueryError, Source, Status} from '../components/ui/status';
+
+function QuickLink({to, label}: {to: string; label: string}) {
+  return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;
 }
-export function Portfolio(){
- const {holding,phase,entitlement}=useApp();
- return <><SectionHeading title="Investor Portfolio" description="ANSH economic interests and separate external REIT examples; all values are illustrative."/>
- <div className="grid gap-4 md:grid-cols-3"><Metric label="ANSH owned" value={integer(holding.owned)} description="Not proof of legal land title"/><Metric label="Available ANSH" value={integer(holding.available)} description="Owned minus pledged"/><Metric label="Pledged ANSH" value={integer(holding.pledged)} description="Unavailable to transfer"/></div>
- <Card className="mt-5" title="ANSH position" description="Source: UI preview · freshness: no verified ledger snapshot">
-  <div className="data-table-wrap"><table className="data-table w-full"><thead><tr><th>Asset</th><th className="money">Owned</th><th className="money">Available</th><th className="money">Pledged</th><th className="money">Acquisition value</th><th className="money">Illustrative value</th><th>Status</th></tr></thead><tbody><tr><td className="font-semibold">TechPark One</td><td className="money">{integer(holding.owned)}</td><td className="money">{integer(holding.available)}</td><td className="money">{integer(holding.pledged)}</td><td className="money">{inr(holding.acquisitionValue)}</td><td className="money">{inr(holding.indicativeValue)}</td><td><Status value="PREVIEW_ONLY"/></td></tr></tbody></table></div>
-  <p className="mt-3 text-xs text-slate-500">Ownership projections must be refreshed from confirmed DRUNIX records. Selected scenario: {phase}.</p>
- </Card>
- <div className="mt-5 grid gap-5 xl:grid-cols-2"><Card title="Income summary" description="Calculated only from a hypothetical record-date position">
-  <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-financial text-2xl font-bold text-[#102B4E]">{inr(entitlement.entitlement)}</p><Status value="PREVIEW_ONLY"/></div><p className="mt-3 text-xs text-slate-500">Eligible ANSH: {entitlement.eligibleUnits} of {integer(entitlement.totalUnits)} · illustrative distribution {inr(entitlement.totalAmount)}. Real entitlements require verified record-date ownership.</p>
- </Card><Card title="External REIT holdings" description="Separate legal instrument; not eligible for ANSH collateral"><div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-4"><div><p className="text-sm font-semibold text-slate-700">Illustrative Indian REIT</p><p className="mt-1 text-xs text-slate-500">External instrument · no connected custodian</p></div><Status value="PREVIEW_ONLY"/></div><p className="mt-3 text-xs text-slate-500">No live REIT trading, ledger custody or pledge is represented.</p></Card></div>
- </>;
+
+export function Overview() {
+  const {role, session} = useApp();
+  const dash = useApi<Dashboard>(route.dashboard);
+  const events = useApi<Page<AssetEvent>>(route.assetEvents + '?page_size=8');
+  const portfolio = useApi<PortfolioData>(role === 'INVESTOR' && session ? `${route.portfolios}/${session.userId}` : null);
+  const isIssuer = role === 'ISSUER', isLender = role === 'LENDER';
+  const d = dash.data;
+  return <>
+    <SectionHeading title={isIssuer ? 'Platform Overview' : isLender ? 'Financing Overview' : 'Investor Dashboard'}
+      description="Live figures from the TokANSH API. ANSH figures are projections of committed DRUNIX operations."
+      action={<QuickLink to={isIssuer ? '/registry' : isLender ? '/lending' : '/marketplace'} label={isIssuer ? 'Property registry' : isLender ? 'Loan applications' : 'Explore ANSH'}/>}/>
+    {dash.error ? <QueryError error={dash.error}/> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Metric label="Approved illustrative valuation" value={d ? inr(d.properties.illustrative_approved_valuation, true) : '…'} description="Synthetic · not a market valuation"/>
+      <Metric label="ANSH issued (committed)" value={d ? integer(d.ansh.issued) : '…'} description={d ? 'Approved supply ' + integer(d.ansh.approved_supply) : ''}/>
+      {role === 'INVESTOR'
+        ? <Metric label="My ANSH (owned / available)" value={portfolio.data ? `${integer(portfolio.data.summary.ansh.owned_units)} / ${integer(portfolio.data.summary.ansh.available_units)}` : '…'} description="Available = owned − pledged"/>
+        : <Metric label="ANSH pledged" value={d ? integer(d.ansh.pledged) : '…'} description="Transfer-restricted on DRUNIX"/>}
+      <Metric label="Ledger operations" value={d ? `${d.ledger.committed} committed` : '…'} description={d ? `${d.ledger.failed} failed · ${d.ledger.unresolved} awaiting reconciliation` : ''}/>
+    </div>}
+    <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <Card title="Business summary" description="Counts from the application database">
+        {!d ? <Loading/> : <div className="grid gap-4 sm:grid-cols-2">
+          {[['Properties', `${d.properties.total} total · ${d.properties.approved} approved`], ['Pending review', integer(d.properties.pending_review)],
+            ['Outstanding simulated loans', inr(d.financing.outstanding)], ['Unresolved ledger outcomes', integer(d.ledger.unresolved)]].map(([k, v]) =>
+            <div key={k} className="rounded-lg bg-slate-50 p-4"><p className="text-xs text-slate-500">{k}</p><p className="font-financial mt-2 text-lg font-bold text-[#102B4E]">{v}</p></div>)}
+        </div>}
+      </Card>
+      <Card title="Latest lifecycle activity" description="Each event shows its source" action={<QuickLink to="/transactions" label="All events"/>}>
+        {events.isLoading ? <Loading/> : !events.data?.items.length ? <EmptyState title="No events yet" description="Onboard a property to begin."/> :
+          <div className="divide-y divide-slate-100">{events.data.items.map(e => <div key={e.id} className="flex items-start gap-3 py-3">
+            <div className="mt-1 rounded-lg bg-slate-100 p-2 text-[#1769AA]"><FileClock size={16}/></div>
+            <div className="flex-1"><p className="text-xs font-semibold text-slate-700">{e.description}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{e.event_type} · {when(e.occurred_at)}{e.ledger_transaction_id ? ' · tx ' + shortRef(e.ledger_transaction_id) : ''}</p></div>
+            <Source value={e.source} simulated={e.simulated}/></div>)}</div>}
+      </Card>
+    </div>
+  </>;
+}
+
+export function Portfolio() {
+  const {session} = useApp();
+  const [verify, setVerify] = useState(false);
+  const pf = useApi<PortfolioData>(session ? `${route.portfolios}/${session.userId}${verify ? '?verify=true' : ''}` : null);
+  const dists = useApi<Page<Distribution>>(route.distributions + '?page_size=50');
+  const s = pf.data?.summary;
+  const income = (dists.data?.items ?? []).filter(d => d.my_entitlement);
+  return <>
+    <SectionHeading title="Investor Portfolio" description="ANSH economic interests (DRUNIX projection) and separate, simulated REIT holdings."
+      action={<Button variant="secondary" size="sm" onClick={() => setVerify(true)}><RefreshCw size={14}/> Verify against DRUNIX</Button>}/>
+    {pf.error && <QueryError error={pf.error}/>}
+    <div className="grid gap-4 md:grid-cols-4">
+      <Metric label="ANSH owned" value={s ? integer(s.ansh.owned_units) : '…'} description="Not proof of legal title"/>
+      <Metric label="Available ANSH" value={s ? integer(s.ansh.available_units) : '…'} description="Owned minus pledged"/>
+      <Metric label="Pledged ANSH" value={s ? integer(s.ansh.pledged_units) : '…'} description="Cannot be transferred"/>
+      <Metric label="Acquisition cost" value={s ? inr(s.ansh.acquisition_cost) : '…'} description={s ? 'Illustrative value ' + inr(s.ansh.illustrative_value) : ''}/>
+    </div>
+    <Card className="mt-5" title="ANSH positions" description="Source: projection of committed DRUNIX operations, with its transaction reference">
+      {pf.isLoading ? <Loading/> : !pf.data?.ansh.length ? <EmptyState title="No ANSH yet" description="Buy ANSH in the marketplace."/> :
+        <div className="data-table-wrap"><table className="data-table w-full">
+          <thead><tr><th>Asset</th><th className="money">Owned</th><th className="money">Available</th><th className="money">Pledged</th>
+            <th className="money">Acquisition cost</th><th className="money">Illustrative value</th><th>Ledger reference</th><th>Verification</th></tr></thead>
+          <tbody>{pf.data.ansh.map(h => <tr key={h.issuance_id}>
+            <td><p className="font-semibold">{h.property_name}</p><code className="text-[10px] text-slate-500">{h.ansh_asset_id}</code></td>
+            <td className="money">{integer(h.owned_units)}</td><td className="money font-semibold text-green-800">{integer(h.available_units)}</td>
+            <td className="money text-amber-800">{integer(h.pledged_units)}</td><td className="money">{inr(h.acquisition_cost)}</td>
+            <td className="money">{inr(h.illustrative_value)}<p className="text-[10px] text-slate-400">simulated valuation</p></td>
+            <td><code className="text-[10px]" title={h.ledger_reference}>{shortRef(h.ledger_reference, 14)}</code><p className="text-[10px] text-slate-400">{when(h.as_of)}</p></td>
+            <td>{h.ledger_verification ? <Status value={h.ledger_verification.status}/> : <Status value={h.reconciliation_status === 'ACTIVE' ? 'PROJECTION' : h.reconciliation_status}/>}</td>
+          </tr>)}</tbody></table></div>}
+    </Card>
+    <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <Card title="Rental income" description="Entitlements from verified record-date holdings · payouts simulated">
+        {!income.length ? <EmptyState title="No entitlements yet" description="Appear after the issuer calculates a distribution."/> :
+          <dl>{income.map(d => <div key={d.id} className="flex items-center justify-between gap-3 border-b border-slate-100 py-2.5 last:border-0">
+            <div><p className="text-sm font-semibold">{d.period_label}</p><p className="text-[11px] text-slate-500">{d.property_name} · record date {d.record_date} · {integer(d.my_entitlement!.eligible_quantity)} eligible ANSH</p></div>
+            <div className="text-right"><p className="font-financial font-bold">{inr(d.my_entitlement!.amount)}</p><Status value={d.my_entitlement!.status}/></div></div>)}</dl>}
+      </Card>
+      <Card title="External REIT holdings" description="Separate asset class · simulated data · not eligible as ANSH collateral">
+        {!pf.data?.reits.length ? <EmptyState title="No REIT holdings" description="—"/> :
+          <div className="data-table-wrap"><table className="data-table w-full"><thead><tr><th>REIT</th><th className="money">Units</th><th className="money">Cost</th><th className="money">Illustrative value</th><th>Source</th></tr></thead>
+            <tbody>{pf.data.reits.map(r => <tr key={r.id}><td className="font-semibold">{r.reit_name}</td><td className="money">{integer(r.quantity)}</td>
+              <td className="money">{inr(r.purchase_value)}</td><td className="money">{inr(r.illustrative_market_value)}</td><td><Source value="EXTERNAL_SIMULATOR" simulated/></td></tr>)}</tbody></table></div>}
+      </Card>
+    </div>
+  </>;
 }

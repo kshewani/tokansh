@@ -553,18 +553,18 @@ declared record date.
 
 ## 12. API Architecture
 
-Organize FastAPI routes by domain:
+Organize FastAPI routes by domain, using the paths in API_CONTRACTS.md section 7
+(the frontend follows them):
 
 - /api/v1/dashboard
 - /api/v1/properties
-- /api/v1/issuance
-- /api/v1/marketplace
-- /api/v1/settlements
-- /api/v1/portfolio
-- /api/v1/financing
+- /api/v1/ansh/issuances, /api/v1/ansh/transfers
+- /api/v1/marketplace, /api/v1/payments
+- /api/v1/portfolios
+- /api/v1/collateral, /api/v1/loans
 - /api/v1/distributions
-- /api/v1/intelligence
-- /api/v1/audit
+- /api/v1/assets
+- /api/v1/audit, /api/v1/ledger
 - /api/v1/system
 
 Use:
