@@ -116,3 +116,7 @@ The shared synchronous HTTPX client is injected through `get_gateway` and closed
 System Status probes gateway liveness and actual GetAllAssets evaluation independently. Gateway liveness alone never proves DRUNIX connectivity. A failed bridge makes network status UNKNOWN; a successful bridge returning a ledger connectivity error makes it UNAVAILABLE. An invalid diagnostic payload leaves connectivity UNKNOWN. Peer/orderer/validation/database internals remain UNKNOWN. Read connectivity does not prove transaction submission or commitment: `/ready` remains 503, transaction capability remains UNAVAILABLE and `last_ledger_operation` stays null. The existing configuration field `ledger_integration: NOT_IMPLEMENTED` continues to describe core ANSH transaction integration, preserving its M2 contract.
 
 Frontend behavior and Connected Mode business restrictions are unchanged. Local demo role headers remain spoofable; this endpoint is not production authentication. No submission, automatic retries, ledger transaction IDs or commitment evidence are implemented.
+
+## M3.3b private transaction foundation
+
+[Private gateway contracts and operator lifecycle](../gateway/TRANSACTIONS.md) describe the implementation. SQLite migration `0002_registration` owns durable ledger operations separately from M2 draft operations. No browser API or Connected Mode business workflow is enabled. Apply migrations explicitly; retain recovery artifacts and credentials until all operations have been reconciled. Real ledger writes and deployment were not performed during this milestone.

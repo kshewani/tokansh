@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/tokansh.db"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     demo_auth_enabled: bool = True
+    tokansh_gateway_secret: str | None = None
+    tokansh_operator_secret: str | None = None
     drunix_gateway_url: str | None = None
     drunix_gateway_timeout_seconds: float = 7.0
 

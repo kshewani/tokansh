@@ -226,3 +226,6 @@ func (s *SDK) ReadAsset(ctx context.Context, id string) (json.RawMessage, error)
 	}
 	return result, nil
 }
+
+// GatewayClient is shared only with the typed internal transaction adapter.
+func (s *SDK) GatewayClient() *client.Gateway { return s.gateway }

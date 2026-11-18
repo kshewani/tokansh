@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 	"tokansh/gateway/internal/readonly"
+	"tokansh/gateway/internal/registration"
 )
 
 func main() {
@@ -22,7 +23,19 @@ func main() {
 		log.Fatal(err)
 	}
 	defer sdk.Close()
-	server := &http.Server{Addr: c.ListenAddress, Handler: readonly.NewHandler(sdk, c), ReadHeaderTimeout: 2 * time.Second,
+	key := registration.Secret(os.Getenv("TOKANSH_GATEWAY_SECRET"))
+	operator := registration.Secret(os.Getenv("TOKANSH_OPERATOR_SECRET"))
+	service := &registration.Service{Key: key}
+	if len(key) == 32 && len(operator) == 32 {
+		service.Ledger, err = registration.NewSDK(sdk.GatewayClient(), c.MSPID, c.CertPath)
+		if err != nil {
+			log.Fatal("registration signer configuration failed")
+		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/tokansh/", registration.Handler(service, operator))
+	mux.Handle("/", readonly.NewHandler(sdk, c))
+	server := &http.Server{Addr: c.ListenAddress, Handler: mux, ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout: 3 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -32,7 +45,7 @@ func main() {
 		defer cancel()
 		server.Shutdown(shutdown)
 	}()
-	log.Printf("mode=READ_ONLY listen=%s", c.ListenAddress)
+	log.Printf("diagnostics=READ_ONLY registration=AUTH_REQUIRED listen=%s", c.ListenAddress)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("private HTTP listener failed")
 	}

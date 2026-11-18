@@ -8,7 +8,7 @@ class Base(DeclarativeBase):
     pass
 
 
-SCHEMA_REVISION = "0001_m2"
+SCHEMA_REVISION = "0002_registration"
 
 
 class Database:
@@ -23,12 +23,13 @@ class Database:
 
     def ready(self) -> bool:
         from app.properties.models import ApplicationOperation, Property, PropertyEvent
+        from app.registration import LedgerOperation
         from sqlalchemy.exc import SQLAlchemyError
 
         try:
             with self.engine.connect() as connection:
                 revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                for model in (Property, ApplicationOperation, PropertyEvent):
+                for model in (Property, ApplicationOperation, PropertyEvent, LedgerOperation):
                     connection.execute(select(model).limit(0))
                 return revision == SCHEMA_REVISION
         except SQLAlchemyError:
