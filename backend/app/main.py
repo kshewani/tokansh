@@ -1,4 +1,5 @@
 import logging
+import httpx
 import re
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -12,6 +13,7 @@ from app.errors import error_response, register_handlers
 from app.properties.router import router as properties_router
 from app.system import router as system_router
 from app.schemas import ErrorEnvelope
+from app.drunix import GatewayAdapter, router as diagnostic_router
 
 logger = logging.getLogger("tokansh")
 
@@ -19,17 +21,23 @@ logger = logging.getLogger("tokansh")
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     database = Database(settings.database_url)
+    gateway_client = httpx.Client(timeout=httpx.Timeout(settings.drunix_gateway_timeout_seconds, connect=1),
+                                 trust_env=False, follow_redirects=False)
     logger.setLevel(settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app):
         # Schema changes are exclusively Alembic-managed; no create_all fallback.
-        yield
-        database.engine.dispose()
+        try:
+            yield
+        finally:
+            gateway_client.close()
+            database.engine.dispose()
 
     app = FastAPI(title="TokANSH Backend", version="0.2.0", lifespan=lifespan,
                   responses={status: {"model": ErrorEnvelope} for status in [400, 401, 403, 404, 409, 422, 500, 503]})
     app.state.settings, app.state.database = settings, database
+    app.state.gateway = GatewayAdapter(settings.drunix_gateway_url, gateway_client)
     register_handlers(app)
 
     @app.middleware("http")
@@ -57,4 +65,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(properties_router)
     app.include_router(api)
     app.include_router(system_router)
+    app.include_router(diagnostic_router)
     return app

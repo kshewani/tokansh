@@ -1,7 +1,7 @@
 # DRUNIX Integration Specification
 
 **Project:** TokANSH
-**Status:** Research baseline — pending validation against the exact DRUNIX version/network supplied for the hackathon
+**Status:** Research baseline with M3.2 local read-only verification below; write/commit capabilities remain unverified
 **Last researched:** 16 November 2026
 **Primary upstream:** https://github.com/npci/drunix
 
@@ -384,3 +384,13 @@ Do not begin the TokANSH real adapter before Phase 1 has produced a successful, 
 8. DRUNIX module definition (`go.mod`): https://github.com/npci/drunix/blob/main/go.mod
 
 **Research limitation:** public repository documentation and samples establish a useful integration path, but they do not establish the configuration, operational guarantees or support commitments of the specific hackathon network. Revalidate every version- and environment-sensitive detail before implementation.
+
+## 17. M3.2 local implementation and evidence
+
+The approved React → FastAPI → private Go gateway → DRUNIX boundary is implemented for diagnostic reads only. [Gateway README](../gateway/README.md) documents configuration, private endpoints, constraints and repeatable verification. Existing research/deployment examples above are not instructions to reset or redeploy the running network.
+
+The public Fabric Gateway Go SDK v1.10.0 with gRPC v1.76.0 (matching the local DRUNIX Go sample) successfully evaluated GetAllAssets against existing `basic` on `mychannel` using Org1 User1, TLS CA verification and peer hostname verification. DRUNIX source was inspected at `8090e0ce58802c8a0f13d23a6abe5a2d35456cc5`. The SDK result matched the full decoded peer CLI result: asset1 through asset6. Go HTTP and FastAPI diagnostic reads were also verified; channel height was 8 before and after verification. These observations establish compatibility for these reads on this local network only, not general Fabric compatibility, write support or production guarantees.
+
+Only GetAllAssets, ReadAsset and AssetExists are exposed privately. No submission or commit implementation exists. System Status preserves its existing schema and reports actual read observations without transaction evidence; readiness stays unavailable. Diagnostic evaluation results never populate ANSH business state. Production credentials, distributed deployment, service authentication and transaction lifecycle/reconciliation remain future work.
+
+**Final verification limitation:** later Gateway SDK probes timed out at the unchanged five-second deadline, despite a contemporaneous successful peer CLI read (0.087 seconds). Earlier full-stack verification remains valid evidence of successful reads, but repeatability is unresolved. No workaround or network modification was attempted; the runtime reliability gate is not fully satisfied.

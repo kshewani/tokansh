@@ -27,6 +27,7 @@ def application(settings):
     command.upgrade(migration_config(settings.database_url), "head")
     app = create_app(settings)
     yield app
+    app.state.gateway.client.close()
     app.state.database.engine.dispose()
 
 

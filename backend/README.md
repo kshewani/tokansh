@@ -88,7 +88,7 @@ VITE_API_BASE_URL=http://localhost:8000
 
 The base URL must **not** include `/api/v1`. Restart Vite after changing its environment. CORS permits `http://localhost:5173` and `http://127.0.0.1:5173`, credentials and the documented request headers; correlation IDs are exposed. Other origins are not granted browser access. CORS is not authentication.
 
-The status endpoint returns the existing frontend `SystemStatus` shape (`components` with `name`, `status` and optional `detail`; `last_ledger_operation: null`). FastAPI can be `CONNECTED` while the database is `UNAVAILABLE`. Database readiness requires the expected migration and application tables. The gateway and transaction capability remain `UNAVAILABLE`; DRUNIX network internals remain `UNKNOWN` because M2 does not query them. No network-down claim is made about an independently running DRUNIX deployment.
+The status endpoint returns the existing frontend `SystemStatus` shape (`components` with `name`, `status` and optional `detail`; `last_ledger_operation: null`). FastAPI can be `CONNECTED` while the database is `UNAVAILABLE`. Database readiness requires the expected migration and application tables. Without M3.2 gateway configuration, the gateway remains `UNAVAILABLE` and DRUNIX connectivity remains `UNKNOWN`. With configuration, live read observations determine gateway and network connectivity; transaction capability stays `UNAVAILABLE`. Individual DRUNIX internals remain `UNKNOWN`. No network-down claim is made about an independently running DRUNIX deployment.
 
 The frontend System Status screen can consume this response. Its business screens intentionally remain unavailable in Connected Mode; wiring the property UI and secure identity/session handling are later integration work. Preview Mode remains unchanged.
 
@@ -101,6 +101,18 @@ Startup never calls `create_all` or automatically runs migrations. Run Alembic e
 .venv/bin/python -m alembic check
 ```
 
-Tests use temporary file-backed SQLite databases and actual migrations. They exercise precision, validation, role checks, idempotency/restart recovery, concurrent duplicate submissions, transactional rollback, pagination, CORS and honest component status. Isolated failure injection is test-only. These tests do not verify DRUNIX integration.
+Tests use temporary file-backed SQLite databases and actual migrations. They exercise precision, validation, role checks, idempotency/restart recovery, concurrent duplicate submissions, transactional rollback, pagination, CORS and honest component status. Isolated failure injection is test-only. The default suite uses isolated gateway test doubles; real read verification is explicitly opt-in as described below.
 
 M2-specific error codes include `DATABASE_UNAVAILABLE`, `AUTHENTICATION_REQUIRED`, `AUTH_NOT_CONFIGURED` and `INTERNAL_ERROR`, alongside existing validation/conflict/reconciliation codes. Database URLs, SQL parameters, request bodies and raw exception contents are not returned in errors or logged by application handlers.
+
+## M3.2 read-only DRUNIX integration
+
+See [gateway setup, private API and verification](../gateway/README.md). Start that service separately, then configure `DRUNIX_GATEWAY_URL=http://127.0.0.1:8001` and optionally `DRUNIX_GATEWAY_TIMEOUT_SECONDS=7` in the backend environment. With no URL, reads fail explicitly; there is no fallback. HTTPX is now a runtime dependency (the existing lock already pins it).
+
+`GET /api/v1/diagnostics/drunix/basic/assets` requires `X-Demo-Role: ADMIN`. It returns the standard `{data,meta}` envelope containing `source: DRUNIX_EVALUATE`, `channel`, `chaincode`, `function`, `observed_at` and the basic-chaincode assets in `result`. These are diagnostic sample assets, not TokANSH properties or ANSH holdings. Errors are structured and sanitized. HTTP 502 means malformed/untrusted upstream data, 503 unavailable connectivity and 504 timeout. Correlation IDs propagate across both HTTP boundaries; reads do not need idempotency keys.
+
+The shared synchronous HTTPX client is injected through `get_gateway` and closed at application shutdown. Proxy environment variables and redirects are disabled; only explicit loopback origins are accepted. Responses have bounded size, strict schemas, fresh observation timestamps and matching correlation metadata. Python 3.10 parsing supports Go RFC3339Nano timestamps. No signing material enters Python.
+
+System Status probes gateway liveness and actual GetAllAssets evaluation independently. Gateway liveness alone never proves DRUNIX connectivity. A failed bridge makes network status UNKNOWN; a successful bridge returning a ledger connectivity error makes it UNAVAILABLE. An invalid diagnostic payload leaves connectivity UNKNOWN. Peer/orderer/validation/database internals remain UNKNOWN. Read connectivity does not prove transaction submission or commitment: `/ready` remains 503, transaction capability remains UNAVAILABLE and `last_ledger_operation` stays null. The existing configuration field `ledger_integration: NOT_IMPLEMENTED` continues to describe core ANSH transaction integration, preserving its M2 contract.
+
+Frontend behavior and Connected Mode business restrictions are unchanged. Local demo role headers remain spoofable; this endpoint is not production authentication. No submission, automatic retries, ledger transaction IDs or commitment evidence are implemented.

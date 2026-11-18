@@ -18,6 +18,27 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/tokansh.db"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     demo_auth_enabled: bool = True
+    drunix_gateway_url: str | None = None
+    drunix_gateway_timeout_seconds: float = 7.0
+
+    @field_validator("drunix_gateway_url")
+    @classmethod
+    def private_gateway(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parts = urlsplit(value)
+        if (parts.scheme != "http" or parts.hostname not in {"127.0.0.1", "localhost", "::1"}
+                or parts.username or parts.password or parts.path not in {"", "/"} or parts.query or parts.fragment
+                or not parts.port):
+            raise ValueError("DRUNIX_GATEWAY_URL must be an explicit loopback HTTP origin")
+        return value.rstrip("/")
+
+    @field_validator("drunix_gateway_timeout_seconds")
+    @classmethod
+    def bounded_gateway_timeout(cls, value: float) -> float:
+        if not 0.1 <= value <= 12:
+            raise ValueError("Gateway timeout must be between 0.1 and 12 seconds")
+        return value
 
     @field_validator("app_port")
     @classmethod

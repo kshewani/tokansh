@@ -434,7 +434,7 @@ All documentation must remain consistent with `DECISIONS.md`.
 
 ## 16. Project Status
 
-Current project stage: **Frontend integration foundation and M2 backend foundation.**
+Current project stage: **M2 backend foundation plus M3.2 read-only DRUNIX diagnostics.**
 
 - The frontend preserves Preview Mode and offers read-only Connected Mode System Status.
 - The FastAPI backend provides configuration, dependency injection, local-development CORS,
@@ -442,8 +442,9 @@ Current project stage: **Frontend integration foundation and M2 backend foundati
   creation/listing/details. See [backend setup and scope](backend/README.md).
 - Approval, property verification, DRUNIX registration, issuance and other ledger workflows
   remain unimplemented. Connected business screens remain unavailable.
-- DRUNIX connectivity and commitment are not claimed. Overall readiness remains unavailable
-  until genuine gateway/ledger integration is implemented and verified.
+- The private Go gateway supports verified read-only queries against the existing `basic`
+  chaincode. See [gateway setup and verification](gateway/README.md). This does not enable
+  ANSH workflows or prove commitment; overall readiness remains unavailable.
 
 The specifications describe the intended complete MVP; they are not evidence that all
 capabilities currently exist.

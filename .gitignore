@@ -73,3 +73,30 @@ docker-compose.override.yml
 *.tar
 *.tar.gz
 *.zip
+
+# Root-level npm placeholders (frontend has its own package files)
+/package.json
+/package-lock.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Node.js dependencies
+node_modules/
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Go compiled artifacts
+/gateway/bin/
+
+# Local secrets (retain tracked .env.example templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
