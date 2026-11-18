@@ -14,10 +14,12 @@ Export the variables documented in [.env.example](.env.example). The Go programs
 | `DRUNIX_CERT_PATH` | `users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem` under that directory |
 | `DRUNIX_KEY_PATH` | Explicit existing file in that user's `msp/keystore`; do not copy or print it |
 | `DRUNIX_TLS_CA_PATH` | `peers/peer0.org1.example.com/tls/ca.crt` under that directory |
-| `DRUNIX_PEER_ENDPOINT` | `dns:///localhost:7051` (Org1 LP gateway) |
+| `DRUNIX_PEER_ENDPOINT` | `dns:///127.0.0.1:7051` (Org1 LP gateway, recommended for local WSL) |
 | `DRUNIX_TLS_SERVER_NAME` | `peer0.org1.example.com` |
 
 Certificate and key must match, use ECDSA P-256 and be currently valid. TLS verifies the peer against its CA and server name; signed evaluation proposals use User1's MSP identity. This is not a claim of mutual TLS client-certificate authentication. Connection construction is lazy: only a successful evaluation establishes actual connectivity.
+
+For local WSL deployment, the literal-IP endpoint avoids unnecessary local DNS resolution while preserving TLS server-name verification through `DRUNIX_TLS_SERVER_NAME=peer0.org1.example.com`. The endpoint remains environment-driven; Go source does not hardcode the IP. Keep the five-second evaluation deadline and do not add retries. For other deployments, configure the actual network endpoint and matching TLS server name.
 
 From `gateway/`, after exporting the paths above:
 
@@ -73,3 +75,7 @@ The Python verifier additionally needs existing `../backend/.venv`, built `bin/p
 Verified results: asset1–asset6, complete payload equality with peer CLI, real FastAPI adapter reads, missing-asset handling and rejection of incorrect TLS server name. Channel height remained 8. An initial probe failed, then a fresh probe and the full verifier succeeded without SDK/dependency/network changes. Final verification and a subsequent standalone SDK probe both returned `LEDGER_TIMEOUT` at the unchanged 5-second deadline (standalone duration 5.026 seconds), while a contemporaneous peer CLI GetAllAssets succeeded in 0.087 seconds with all six assets. The SDK timeout cause is unresolved; repeatable gateway connectivity is an open M3.2 acceptance issue. No retry, deadline increase, alternate SDK or transport workaround was added. Live testing also caught and corrected Python 3.10 rejection of Go nanosecond timestamps.
 
 Read connectivity does not prove endorsement, ordering, validation, submission, commit status or reconciliation. FastAPI `/ready` remains 503, transaction capability UNAVAILABLE, last ledger operation null, and Connected Mode business screens remain unavailable.
+
+M3.2c follow-up: with the unchanged five-second deadline, `dns:///localhost:7051` succeeded in 9/10 fresh reads (one timeout); `dns:///127.0.0.1:7051` succeeded in 10/10 fresh reads and 10/10 reads on one reused connection. All successful full asset payloads matched peer CLI, and channel height and block hashes were unchanged. This bounded evidence supports the literal-IP recommendation; it does not establish long-term reliability or confirm the historical timeout's exact cause. The M3.2 timeout observations above remain historical evidence.
+
+Verifier CLI peer selection is independent of the SDK endpoint: `DRUNIX_CLI_COMMITTING_PEER_ADDRESS` defaults to `localhost:7061` for channel height and block hashes, while `DRUNIX_CLI_LITE_PEER_ADDRESS` defaults to `localhost:7051` for basic chaincode queries. Each command receives its own environment copy. Before/after checks compare height, current block hash and previous block hash. CLI failures include bounded, sanitized stderr.

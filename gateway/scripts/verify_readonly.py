@@ -5,10 +5,38 @@ Starts/stops only a new gateway child process; never manages DRUNIX containers.
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
 import time
+
+
+def sanitized_stderr(value, env):
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?(?:-----END [^-]+-----|$)", "[REDACTED PEM]", value, flags=re.S)
+    for name, secret in env.items():
+        if secret and any(word in name.upper() for word in ("PASSWORD", "SECRET", "TOKEN", "PRIVATE_KEY")):
+            value = value.replace(secret, "[REDACTED]")
+    value = re.sub(r"(?i)(password|token|secret|authorization)\s*[:=]\s*\S+", r"\1=[REDACTED]", value)
+    value = re.sub(r"[A-Za-z0-9+/=_-]{80,}", "[REDACTED ENCODED DATA]", value)
+    return value.strip()[:2000] or "No stderr detail returned."
+
+
+def peer_cli(drunix, env, address, *arguments):
+    # Copy per command: selecting a query peer must never affect channel checks.
+    command_env = dict(env, CORE_PEER_ADDRESS=address)
+    try:
+        result = subprocess.run([str(drunix / "build/bin/peer"), *arguments], env=command_env,
+                                capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired as exc:
+        detail = exc.stderr or ""
+        if isinstance(detail, bytes):
+            detail = detail.decode(errors="replace")
+        raise RuntimeError("Read-only peer CLI timed out: " + sanitized_stderr(detail, command_env)) from None
+    if result.returncode:
+        raise RuntimeError("Read-only peer CLI verification failed: " + sanitized_stderr(result.stderr, command_env))
+    return result.stdout
 
 
 def main():
@@ -23,21 +51,18 @@ def main():
     env.update(FABRIC_CFG_PATH=str(drunix / "drunix-network/config"), FABRIC_LOGGING_SPEC="error",
                CORE_PEER_TLS_ENABLED="true", CORE_PEER_LOCALMSPID=env["DRUNIX_MSP_ID"],
                CORE_PEER_MSPCONFIGPATH=str(Path(env["DRUNIX_CERT_PATH"]).parent.parent),
-               CORE_PEER_TLS_ROOTCERT_FILE=env["DRUNIX_TLS_CA_PATH"], CORE_PEER_ADDRESS="localhost:7061")
+               CORE_PEER_TLS_ROOTCERT_FILE=env["DRUNIX_TLS_CA_PATH"])
 
-    def cli(*arguments):
-        result = subprocess.run([str(drunix / "build/bin/peer"), *arguments], env=env,
-                                capture_output=True, text=True, timeout=20)
-        if result.returncode:
-            raise RuntimeError("Read-only peer CLI verification failed")
-        return result.stdout
+    committing_peer = env.get("DRUNIX_CLI_COMMITTING_PEER_ADDRESS", "localhost:7061")
+    lite_peer = env.get("DRUNIX_CLI_LITE_PEER_ADDRESS", "localhost:7051")
 
-    def height():
-        return json.loads(cli("channel", "getinfo", "-c", "mychannel").split("Blockchain info: ", 1)[1])["height"]
+    def blockchain_info():
+        output = peer_cli(drunix, env, committing_peer, "channel", "getinfo", "-c", "mychannel")
+        info = json.loads(output.split("Blockchain info: ", 1)[1])
+        return {key: info[key] for key in ("height", "currentBlockHash", "previousBlockHash")}
 
-    before = height()
-    env["CORE_PEER_ADDRESS"] = env["DRUNIX_PEER_ENDPOINT"].removeprefix("dns:///")
-    expected = json.loads(cli("chaincode", "query", "-C", "mychannel", "-n", "basic", "-c", '{"Args":["GetAllAssets"]}'))
+    before = blockchain_info()
+    expected = json.loads(peer_cli(drunix, env, lite_peer, "chaincode", "query", "-C", "mychannel", "-n", "basic", "-c", '{"Args":["GetAllAssets"]}'))
     probe = subprocess.run([str(gateway / "bin/probe")], env=env, capture_output=True, text=True, timeout=20)
     if probe.returncode:
         # probe prints only reviewed, sanitized configuration/evaluation errors.
@@ -91,13 +116,13 @@ def main():
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-    env["CORE_PEER_ADDRESS"] = "localhost:7061"
-    after = height()
-    assert before == after, "Channel advanced during verification; investigate external activity without resetting anything"
+    after = blockchain_info()
+    assert before == after, "Channel height or block hashes changed; investigate external activity without resetting anything"
     print(json.dumps({"sdk_cli_full_payload_match": True, "http_cli_full_payload_match": True,
                       "fastapi_real_read_test": "PASS", "asset_ids": sorted(a["ID"] for a in actual),
                       "assets": sorted(actual, key=lambda a: a["ID"]),
-                      "channel_height_before": before, "channel_height_after": after,
+                      "channel_height_before": before["height"], "channel_height_after": after["height"],
+                      "blockchain_before": before, "blockchain_after": after,
                       "new_gateway_process_stopped": True}))
 
 
