@@ -72,10 +72,17 @@ class RegistrationClient:
         self.url=url;self.backend_secret=backend_secret;self.operator_secret=operator_secret;self.client=client
 
     def request(self,path,payload):
+        # Validate the raw destination before constructing any credentialed request.
+        # Literal addresses avoid DNS and parser-normalization ambiguities.
+        match = re.fullmatch(r'http://(?:127\.0\.0\.1|\[::1\]):([0-9]{1,5})/?', self.url) if isinstance(self.url,str) else None
+        if (match is None or not 1 <= int(match[1]) <= 65535
+                or self.client.trust_env or self.client.follow_redirects):
+            raise fail('GATEWAY_CONFIGURATION_INVALID')
+        origin = self.url.rstrip('/')
         if not self.url or not secret(self.backend_secret) or not secret(self.operator_secret) or self.backend_secret==self.operator_secret:
             raise fail('AUTH_NOT_CONFIGURED')
         try:
-            with self.client.stream('POST',self.url+'/v1/tokansh/'+path,json=payload,headers={
+            with self.client.stream('POST',origin+'/v1/tokansh/'+path,json=payload,follow_redirects=False,headers={
                 'Authorization':'Bearer '+self.backend_secret,'X-Operator-Capability':self.operator_secret}) as response:
                 body=bytearray();deadline=time.monotonic()+7
                 for chunk in response.iter_bytes():
