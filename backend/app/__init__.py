@@ -1,0 +1,1 @@
+"""TokANSH modular monolith."""

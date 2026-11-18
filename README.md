@@ -434,14 +434,19 @@ All documentation must remain consistent with `DECISIONS.md`.
 
 ## 16. Project Status
 
-Current project stage: **Specification and architecture preparation.**
+Current project stage: **Frontend integration foundation and M2 backend foundation.**
 
-The initial documentation is being established before implementation.
+- The frontend preserves Preview Mode and offers read-only Connected Mode System Status.
+- The FastAPI backend provides configuration, dependency injection, local-development CORS,
+  structured errors, SQLite persistence, Alembic migrations and idempotent property draft
+  creation/listing/details. See [backend setup and scope](backend/README.md).
+- Approval, property verification, DRUNIX registration, issuance and other ledger workflows
+  remain unimplemented. Connected business screens remain unavailable.
+- DRUNIX connectivity and commitment are not claimed. Overall readiness remains unavailable
+  until genuine gateway/ledger integration is implemented and verified.
 
-Do not interpret the presence of a documented capability as proof that
-it has already been implemented.
-
-Implementation status must be reported accurately.
+The specifications describe the intended complete MVP; they are not evidence that all
+capabilities currently exist.
 
 ## 17. Project Constraints
 
