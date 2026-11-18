@@ -1,6 +1,6 @@
-# M3.2 private read-only DRUNIX gateway
+# Private DRUNIX Gateway — M3 current state
 
-This isolated Go module implements the approved FastAPI → Go → DRUNIX boundary. It only queries the existing `basic` chaincode on `mychannel`; it cannot submit transactions. No runtime mock/fallback is available. The DRUNIX repository and running network must remain unchanged.
+This isolated Go module implements the approved FastAPI → Go → DRUNIX boundary. Its M3.2 diagnostic routes only query `basic` on `mychannel`. The M3.3b authenticated private extension implements TokANSH preparation, submission and status recovery; live business transactions remain unverified. No runtime mock/fallback is available. The DRUNIX repository and running network must remain unchanged.
 
 ## Configuration and execution
 
@@ -32,9 +32,9 @@ go build -mod=readonly -o bin/gateway ./cmd/gateway
 
 The probe calls exactly `EvaluateTransaction("GetAllAssets")`. HTTP reads use cancellation-aware evaluation with bounded contexts and reuse the SDK connection. Defaults: loopback `127.0.0.1:8001`, evaluation deadline 5 seconds (allowed 100ms–10s), channel `mychannel`, chaincode `basic`. Other channels/chaincodes and non-loopback listening addresses are rejected. Server header/read/write timeouts are 2/3/15 seconds. A request has one overall evaluation deadline even when ReadAsset first checks existence. Responses are limited to 1 MiB (gRPC receive ceiling 2 MiB).
 
-## Private HTTP contract
+## M3.2 basic diagnostic HTTP contract
 
-Only GET requests are accepted; query parameters and request bodies are rejected. No generic invocation endpoint, CORS configuration, transaction submission or automatic retry exists.
+For the M3.2 basic diagnostic routes, only GET requests are accepted; query parameters and request bodies are rejected. These diagnostic routes have no generic invocation endpoint, CORS configuration, transaction submission or automatic retry.
 
 | Route | Meaning |
 |---|---|
@@ -72,7 +72,7 @@ python3 scripts/verify_readonly.py
 
 The Python verifier additionally needs existing `../backend/.venv`, built `bin/probe` and `bin/gateway`, and the existing DRUNIX peer CLI. It defaults to `~/projects/drunix` (override `DRUNIX_REPOSITORY`). It compares the full decoded SDK and HTTP results against peer CLI GetAllAssets, runs live Go reads and FastAPI tests, and checks channel height before/after through Org1 CP `localhost:7061`. It starts/stops only its own temporary TokANSH gateway child. It does not manage containers, deploy chaincode or invoke writes. Tests assume the previously observed six diagnostic assets; an externally changed baseline fails explicitly.
 
-Verified results: asset1–asset6, complete payload equality with peer CLI, real FastAPI adapter reads, missing-asset handling and rejection of incorrect TLS server name. Channel height remained 8. An initial probe failed, then a fresh probe and the full verifier succeeded without SDK/dependency/network changes. Final verification and a subsequent standalone SDK probe both returned `LEDGER_TIMEOUT` at the unchanged 5-second deadline (standalone duration 5.026 seconds), while a contemporaneous peer CLI GetAllAssets succeeded in 0.087 seconds with all six assets. The SDK timeout cause is unresolved; repeatable gateway connectivity is an open M3.2 acceptance issue. No retry, deadline increase, alternate SDK or transport workaround was added. Live testing also caught and corrected Python 3.10 rejection of Go nanosecond timestamps.
+Historical M3.2 verification results: asset1–asset6, complete payload equality with peer CLI, real FastAPI adapter reads, missing-asset handling and rejection of incorrect TLS server name. Channel height remained 8. An initial probe failed, then a fresh probe and the full verifier succeeded without SDK/dependency/network changes. Final verification and a subsequent standalone SDK probe both returned `LEDGER_TIMEOUT` at the unchanged 5-second deadline (standalone duration 5.026 seconds), while a contemporaneous peer CLI GetAllAssets succeeded in 0.087 seconds with all six assets. The SDK timeout cause is unresolved; repeatable gateway connectivity is an open M3.2 acceptance issue. No retry, deadline increase, alternate SDK or transport workaround was added. Live testing also caught and corrected Python 3.10 rejection of Go nanosecond timestamps.
 
 Read connectivity does not prove endorsement, ordering, validation, submission, commit status or reconciliation. FastAPI `/ready` remains 503, transaction capability UNAVAILABLE, last ledger operation null, and Connected Mode business screens remain unavailable.
 
@@ -81,3 +81,24 @@ M3.2c follow-up: with the unchanged five-second deadline, `dns:///localhost:7051
 Verifier CLI peer selection is independent of the SDK endpoint: `DRUNIX_CLI_COMMITTING_PEER_ADDRESS` defaults to `localhost:7061` for channel height and block hashes, while `DRUNIX_CLI_LITE_PEER_ADDRESS` defaults to `localhost:7051` for basic chaincode queries. Each command receives its own environment copy. Before/after checks compare height, current block hash and previous block hash. CLI failures include bounded, sanitized stderr.
 
 M3.3b adds [authenticated private transaction integration](TRANSACTIONS.md), disabled unless both dedicated secrets are configured. Existing basic diagnostic routes and their read-only semantics are preserved. No live write capability has been verified on DRUNIX.
+
+
+## Current M3 acceptance boundary
+
+TokANSH v1.0 sequence 1 is deployed on mychannel with the two-org AND policy.
+Deployment preservation checks and dual-org Lite Peer read acceptance passed at
+height 11: contract metadata 200, absent property/operation 404, basic six assets
+preserved. Both peer endpoints were tested with the pinned Org1 User1 signer;
+this does not establish an Org2 application signer authorization.
+No live property registration has occurred. Endorsement, submission, commit-status
+forwarding and restart reconciliation still require M3.3c.2 live acceptance.
+Earlier M3.2 timeout observations above are historical; literal-IP selection
+improved bounded read reliability without confirming the original root cause.
+
+[Deployment instructions](../scripts/drunix/OPERATOR-INSTRUCTIONS.md) preserve the
+phase-gated procedure and local-only Org2 Writers exception. Private secrets,
+packages, baselines and raw evidence stay outside Git. See [transaction limitations](TRANSACTIONS.md)
+for the SQLite preparation write lock, trusted single-submission gate (no global
+exactly-once guarantee) and cold namespace initialization latency risk. The evaluation
+deadline stays five seconds, with no retry. `/ready` remains unavailable until business
+readiness is established; deployment or successful reads alone do not enable it.

@@ -1,0 +1,14 @@
+{
+  "source_revision": "6e2023e0b38df3cf15e19b6154fde6c3c7e52bc8",
+  "package_sha256": "4d5b98db78d5f45490214a7c2e6cfce9306fb05475a0506e58a5fa85617aed7f",
+  "package_id": "tokansh_1.0:4d5b98db78d5f45490214a7c2e6cfce9306fb05475a0506e58a5fa85617aed7f",
+  "package_size_bytes": 3238894,
+  "record_type": "Historical deployment identity; not an executable deployment context",
+  "channel": "mychannel",
+  "chaincode": "tokansh",
+  "version": "1.0",
+  "sequence": 1,
+  "policy": "AND('Org1MSP.peer','Org2MSP.peer')",
+  "init_required": false,
+  "verified_height": 11
+}

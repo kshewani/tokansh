@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "deployment_id": "REPLACE-with-unique-environment-and-package-review-id",
+  "network_root": "/absolute/path/to/drunix",
+  "package_path": "/absolute/path/to/private-release/tokansh_1.0.tar.gz",
+  "package_sha256": "REPLACE-with-reviewed-package-sha256",
+  "package_id": "tokansh_1.0:REPLACE-with-reviewed-package-sha256",
+  "baseline_path": "/absolute/path/to/private-release/preservation.json",
+  "baseline_sha256": "REPLACE-with-reviewed-baseline-sha256",
+  "evidence_directory": "/absolute/path/to/private-release/evidence",
+  "cp_certificate_sha256": {
+    "Org1MSP": "REPLACE-with-certificate-DER-sha256",
+    "Org2MSP": "REPLACE-with-certificate-DER-sha256"
+  },
+  "channel": "mychannel",
+  "chaincode": "tokansh",
+  "version": "1.0",
+  "sequence": 1,
+  "policy": "AND('Org1MSP.peer','Org2MSP.peer')",
+  "init_required": false
+}

@@ -1,6 +1,6 @@
 # M3.3b private registration integration
 
-Implementation/testing only: `tokansh` has not been deployed and no live submissions were made. Existing `basic` endpoints remain read-only and unchanged. Transaction readiness remains unavailable and connected business screens remain disabled.
+Current status: `tokansh` v1.0 sequence 1 is deployed on mychannel; deployment and dual-org read-only acceptance passed at height 11. No live property registration has occurred. M3.3b transaction integration is implemented and tested in isolation; live transaction acceptance remains pending. Existing `basic` endpoints remain read-only and unchanged. Transaction readiness remains unavailable and connected business screens remain disabled.
 
 FastAPI SQLite is the sole durable transaction-state owner. The Go process shares the existing TLS SDK connection and contains no transaction database. Set distinct, independently random 32-byte secrets (64 hex characters) in both processes: TOKANSH_GATEWAY_SECRET and TOKANSH_OPERATOR_SECRET. Missing/invalid/identical credentials disable TokANSH routes. No actual secret values belong in examples or Git. Persist the secrets securely across restarts: changing the backend secret invalidates existing artifact HMACs and requires operator review, not re-preparation/resubmission.
 
@@ -38,7 +38,7 @@ Run the operator from backend after applying migrations:
 
 These are future write-capable operator commands, **not commands executed during M3.3b validation**. Capability is entered with getpass, never supplied in argv. `prepare-created` explicitly resumes a CREATED operation. The operator must independently verify the approval attestation: M4 approval workflows do not exist yet. Draft data or a demo role is not approval evidence.
 
-Migration 0002_registration adds a separate ledger_operations table. Do not downgrade/drop it while operations need reconciliation. Go tests use isolated mocks and an in-memory gRPC server; SDK recovery is tested without a submission object. Network deployment, actual two-org endorsement, ordering, MVCC, LP→CP status forwarding and true restart recovery against DRUNIX remain future runtime acceptance gates. M3.2 read connectivity alone does not establish them.
+Migration 0002_registration adds a separate ledger_operations table. Do not downgrade/drop it while operations need reconciliation. Go tests use isolated mocks and an in-memory gRPC server; SDK recovery is tested without a submission object. Network deployment and read-only acceptance are complete. Actual business two-org endorsement, ordering, MVCC, LP→CP status forwarding and true restart recovery against DRUNIX remain future runtime acceptance gates. M3.2 read connectivity alone does not establish them.
 
 ## M3.3b.1 hardening and deferred contention optimization
 
@@ -57,3 +57,20 @@ Only TokANSH GET evaluation errors are classified here; submission/status paths 
 Runtime verification after deployment returned GetContractInfo 200, missing property/operation 404, and preserved the complete basic payload. Both organizations stayed at height 11 with unchanged hashes. Only GET evaluations and channel-info reads were performed; no transaction workflow was exercised. Five-second timeouts, RPC unavailability and disconnected transports are also tested through the pinned SDK against an isolated in-memory gRPC server.
 
 Timeout investigation: previous peer logs at 2026-11-18 16:11:26–31 UTC show `Creating table mychannel.tokansh`, followed by Gateway Evaluate DeadlineExceeded (5.002 seconds) and chaincode execution lasting 5003 ms. DRUNIX `sql_client.go` routes GetState through GetTable; GetTable calls tableCache.CreateIfNotExists, whose implementation can AutoMigrate the namespace table. This confirms that the timed-out request reached the peer/endorser, rather than stalling at client DNS or TLS. Cold namespace-table initialization is strongly supported by source/log correlation and subsequent fast missing-key reads, but the exact SQL timing was not instrumented and is not conclusively isolated. No DRUNIX modification, cache reset, schema creation command, retry or timeout increase was used. Any future cold-start reproduction needs separate authorization in an isolated environment; do not force a cold state on the existing network.
+
+
+## M3.3c.3 operational consolidation
+
+The [deployment runbook](../scripts/drunix/OPERATOR-INSTRUCTIONS.md) and offline
+assertions are repository deliverables. The historical package identity is retained
+as sanitized metadata; packages, signed recovery artifacts, SQLite databases,
+secrets and raw evidence remain external. Each future environment/package needs
+its own reviewed manifest, certificate binding, baseline, digest and deployment ID.
+The Org2 Writers policy anomaly is an accepted isolated-local-hackathon exception
+only, not approval for shared, cloud or production use. No channel policy is changed.
+
+The cold namespace initialization correlation above is a latency risk, not a proven
+SQL timing root cause. Preserve the five-second evaluation deadline and fail honestly
+on expiry; do not add retries. `/ready` remains 503 until business readiness is
+established. A valid business commit must be independently observed during live
+transaction acceptance before claiming that transaction integration works on DRUNIX.

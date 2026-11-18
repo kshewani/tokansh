@@ -1,7 +1,7 @@
 # DRUNIX Integration Specification
 
 **Project:** TokANSH
-**Status:** Research baseline with M3.2 local read-only verification below; write/commit capabilities remain unverified
+**Status:** M3 implementation complete; TokANSH deployed and dual-org reads verified; live business transaction acceptance pending
 **Last researched:** 16 November 2026
 **Primary upstream:** https://github.com/npci/drunix
 
@@ -385,18 +385,52 @@ Do not begin the TokANSH real adapter before Phase 1 has produced a successful, 
 
 **Research limitation:** public repository documentation and samples establish a useful integration path, but they do not establish the configuration, operational guarantees or support commitments of the specific hackathon network. Revalidate every version- and environment-sensitive detail before implementation.
 
-## 17. M3.2 local implementation and evidence
+## 17. Historical M3.2 local implementation and evidence
 
-The approved React → FastAPI → private Go gateway → DRUNIX boundary is implemented for diagnostic reads only. [Gateway README](../gateway/README.md) documents configuration, private endpoints, constraints and repeatable verification. Existing research/deployment examples above are not instructions to reset or redeploy the running network.
+At M3.2, the approved React → FastAPI → private Go gateway → DRUNIX boundary was implemented for diagnostic reads only. [Gateway README](../gateway/README.md) documents configuration, private endpoints, constraints and repeatable verification. Existing research/deployment examples above are not instructions to reset or redeploy the running network.
 
 The public Fabric Gateway Go SDK v1.10.0 with gRPC v1.76.0 (matching the local DRUNIX Go sample) successfully evaluated GetAllAssets against existing `basic` on `mychannel` using Org1 User1, TLS CA verification and peer hostname verification. DRUNIX source was inspected at `8090e0ce58802c8a0f13d23a6abe5a2d35456cc5`. The SDK result matched the full decoded peer CLI result: asset1 through asset6. Go HTTP and FastAPI diagnostic reads were also verified; channel height was 8 before and after verification. These observations establish compatibility for these reads on this local network only, not general Fabric compatibility, write support or production guarantees.
 
-Only GetAllAssets, ReadAsset and AssetExists are exposed privately. No submission or commit implementation exists. System Status preserves its existing schema and reports actual read observations without transaction evidence; readiness stays unavailable. Diagnostic evaluation results never populate ANSH business state. Production credentials, distributed deployment, service authentication and transaction lifecycle/reconciliation remain future work.
+At M3.2, only GetAllAssets, ReadAsset and AssetExists were exposed privately; submission and commit implementation did not yet exist (superseded by M3.3b below). System Status preserves its existing schema and reports actual read observations without transaction evidence; readiness stays unavailable. Diagnostic evaluation results never populate ANSH business state. At that checkpoint, production credentials, distributed deployment, service authentication and transaction lifecycle/reconciliation remained future work; section 18 records the current implementation.
 
-**Final verification limitation:** later Gateway SDK probes timed out at the unchanged five-second deadline, despite a contemporaneous successful peer CLI read (0.087 seconds). Earlier full-stack verification remains valid evidence of successful reads, but repeatability is unresolved. No workaround or network modification was attempted; the runtime reliability gate is not fully satisfied.
+**Historical M3.2 final verification limitation:** later Gateway SDK probes timed out at the unchanged five-second deadline, despite a contemporaneous successful peer CLI read (0.087 seconds). Earlier full-stack verification remains valid evidence of successful reads, but repeatability is unresolved. No workaround or network modification was attempted; the runtime reliability gate is not fully satisfied.
 
 ### M3.2c/d local WSL endpoint recommendation
 
 Use environment configuration `DRUNIX_PEER_ENDPOINT=dns:///127.0.0.1:7051` with `DRUNIX_TLS_SERVER_NAME=peer0.org1.example.com` and `DRUNIX_EVALUATE_TIMEOUT=5s` for the existing local Org1 LP gateway. The literal IP avoids unnecessary local DNS resolution; the configured CA and TLS server-name verification remain enabled. This is a local deployment recommendation, not an IP hardcoded in Go source or a change to application business behavior.
 
 In M3.2c's bounded comparison, the hostname endpoint completed 9/10 fresh SDK reads, with one five-second timeout. The literal-IP endpoint completed 10/10 fresh reads and 10/10 sequential reads on a reused connection. All successful full asset payloads matched native peer CLI results; channel height and block hashes were unchanged. These results support adopting the literal IP locally without retries or deadline increases. They do not confirm the historical timeout's exact cause or guarantee long-term reliability. The preceding M3.2 limitation describes the earlier hostname-endpoint verification.
+
+
+## 18. Current M3 operational status (M3.3c.3)
+
+Implemented: dedicated chaincode registration/reads, authenticated typed Go Gateway,
+FastAPI private operator orchestration, SQLite migration 0002, durable artifacts,
+submission gate and SDK commit-status reconstruction. See [transaction contracts](../gateway/TRANSACTIONS.md).
+No browser registration route or connected business workflow is enabled.
+
+Deployed/verified: tokansh 1.0 sequence 1 on mychannel, no init,
+AND('Org1MSP.peer','Org2MSP.peer'); preservation of basic and its six assets;
+dual-org Lite Peer reads with the pinned Org1 signer. Saved acceptance reported
+height 11 with unchanged hashes during read testing. No live property registration
+has occurred. Real business endorsement, ordering, validation, LP→CP status routing
+and restart recovery remain acceptance gates for M3.3c.2. Earlier research limitations
+and M3.2-only descriptions are historical, not statements that this code is absent.
+
+Reusable deployment tooling is under [scripts/drunix](../scripts/drunix/OPERATOR-INSTRUCTIONS.md).
+External reviewed manifests bind package, baseline and local network certificates;
+the accepted deployment identity is preserved separately from runnable configuration.
+Packages, baselines, raw logs and generated evidence must remain outside Git.
+
+The Org2 Writers policy anomaly is explicitly accepted only for the isolated local
+hackathon environment, not shared/cloud/production. Broader use requires separate
+policy review and acceptance; consolidation does not modify channel configuration.
+
+Known limitations: a SQLite write lock spans remote preparation; the orchestrator's
+CAS is a trusted submission gate, not global exactly-once delivery; cold namespace
+initialization may exceed the unchanged five-second evaluation deadline. The latter
+is supported by source/log correlation but exact SQL timing remains unproven.
+No automatic ambiguous resubmission or simulator fallback exists. `/ready` stays
+unavailable until business readiness is established, independent of read/deployment
+success. Secure artifact/database retention and stable signer/HMAC secrets are
+required for restart reconciliation.
