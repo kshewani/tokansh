@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {ArrowRight,Building2,FileCheck2,FileClock,Info,MapPin,ShieldAlert} from 'lucide-react';
-import {useApp} from '../app/context';
+import {usePreview} from '../app/context';
 import {route} from '../api/contracts';
 import type {NewIssuance,NewOrder,NewProperty} from '../api/contracts';
 import {phaseIndex,integer,inr,propertyImage,sample} from '../demo/scenario';
@@ -14,7 +14,7 @@ function TransitionTimeline({phase}:{phase:string}){
  return <ol className="space-y-4">{labels.map((label,i)=><li key={label} className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-[#1769AA]">{i+1}</span><div><p className="text-sm font-semibold text-slate-700">{label}</p><p className="mt-1 text-xs text-slate-500">{i<3?'Supporting workflow stage':i===3?'Submission requires Python and DRUNIX':i===4?'Only actual commit permits success':'Only refresh after verified commit'}</p></div><Status value={i===0&&phase==='PURCHASED'?'PREVIEW_ONLY':'UNAVAILABLE'}/></li>)}</ol>;
 }
 export function Registry(){
- const {property,phase,submit,submitting}=useApp();
+ const {property,phase,submit,submitting}=usePreview();
  const [open,setOpen]=useState<'register'|'submit'|'approve'|'reject'|null>(null);
  const [name,setName]=useState(sample.name);const [location,setLocation]=useState(sample.location);
  const [category,setCategory]=useState('Commercial office');const [valuation,setValuation]=useState(sample.valuation);
@@ -53,7 +53,7 @@ export function Registry(){
  </>;
 }
 export function Issuance(){
- const {property,phase,submit,submitting}=useApp();
+ const {property,phase,submit,submitting}=usePreview();
  const [quantity,setQuantity]=useState(100000),[open,setOpen]=useState(false);
  const allowed=phaseIndex(phase)>=1&&property.approvedSupply>=quantity&&quantity>0;
  const payload:NewIssuance={property_id:sample.id,quantity,issue_price:sample.unitPrice,currency:'INR'};
@@ -76,7 +76,7 @@ export function Issuance(){
  </>;
 }
 export function Marketplace(){
- const {phase,property,holding,submit,submitting}=useApp();
+ const {phase,property,holding,submit,submitting}=usePreview();
  const [quantity,setQuantity]=useState(500),[open,setOpen]=useState(false),[showDetails,setShowDetails]=useState(false);
  const listingReady=phaseIndex(phase)>=2;
  const valid=Number.isSafeInteger(quantity)&&quantity>0&&quantity<=sample.approvedSupply;

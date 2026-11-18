@@ -24,7 +24,7 @@ function Guard({roles,children}:{roles:Role[];children:ReactNode}){
  return roles.includes(role)?<>{children}</>:<Navigate to="/overview" replace/>;
 }
 function Login(){
- const {demoSession,role,login}=useApp();
+ const {demoSession,role,login,mode}=useApp();
  const [selectedRole,setSelectedRole]=useState<Role>(role);
  const navigate=useNavigate();
  if(demoSession)return <Navigate to="/overview" replace/>;
@@ -42,7 +42,7 @@ function Login(){
     <p className="mt-5 max-w-md text-sm leading-7 text-blue-100/80">A professional workspace for fractional real estate interests, portfolio visibility, issuance, collateral and lifecycle tracking.</p>
     <div className="mt-9 grid gap-4 text-sm text-blue-100/90"><div className="flex items-center gap-3"><Building2 size={18} className="text-blue-200"/> Property and ANSH lifecycle</div><div className="flex items-center gap-3"><ShieldCheck size={18} className="text-blue-200"/> Distinct transaction and ledger states</div><div className="flex items-center gap-3"><LockKeyhole size={18} className="text-blue-200"/> Institution-ready role experiences</div></div>
    </div>
-   <p className="text-xs text-blue-100/60">Frontend-only UI preview · No real payments or ledger operations</p>
+   <p className="text-xs text-blue-100/60">{mode==='preview'?'Frontend-only UI preview · No real payments or ledger operations':'Connected Mode · Read-only System Status integration'}</p>
   </section>
   <section className="flex items-center justify-center px-5 py-9 sm:px-8 lg:p-12">
    <div className="w-full max-w-[470px]">
@@ -63,7 +63,7 @@ function Login(){
       <Button type="submit" className="mt-5 w-full">Enter demo workspace <ArrowRight size={17}/></Button>
      </form>
     </Card>
-    <div className="mt-5"><PreviewWarning compact/></div>
+    <div className="mt-5"><PreviewWarning compact connected={mode==='real'}/></div>
     <p className="mt-4 text-center text-xs leading-5 text-slate-500">This is a session-based preview gate, not password authentication. Secure identity and access checks will be handled by the Python backend.</p>
    </div>
   </section>

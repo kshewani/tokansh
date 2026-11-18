@@ -1,8 +1,8 @@
 import {useState} from 'react';
 import {Activity,AlertTriangle,BookOpen,FileClock,HandCoins,Info,Landmark,Layers3,ShieldAlert} from 'lucide-react';
 import {Bar,BarChart,CartesianGrid,Cell,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
-import {useApp} from '../app/context';
-import {realBackendConfigured} from '../api/transport';
+import {useApp,usePreview} from '../app/context';
+import {SystemStatusView} from '../components/SystemStatus';
 import {route} from '../api/contracts';
 import {inr,integer,phaseIndex,sample} from '../demo/scenario';
 import {Button} from '../components/ui/button';
@@ -11,7 +11,7 @@ import {DataRow,Field} from '../components/ui/form';
 import {ReviewDialog} from '../components/ui/dialog';
 import {Status} from '../components/ui/status';
 export function Distributions(){
- const {role,phase,entitlement,submit,submitting}=useApp();
+ const {role,phase,entitlement,submit,submitting}=usePreview();
  const [recordDate,setRecordDate]=useState(sample.recordDate),[amount,setAmount]=useState(sample.distribution),[open,setOpen]=useState(false);
  const eligible=phaseIndex(phase)>=3;
  const valid=!!recordDate&&Number(amount)>0&&Number.isFinite(Number(amount));
@@ -37,7 +37,7 @@ export function Distributions(){
  </>;
 }
 export function Audit({mode='audit'}:{mode?:'audit'|'transactions'}){
- const {events,phase}=useApp();
+ const {events,phase}=usePreview();
  return <><SectionHeading title={mode==='audit'?'Audit & Lifecycle':'Transactions'} description="Application events must remain distinct from verified blockchain transactions and ledger states."/>
  <div className="grid gap-4 md:grid-cols-3"><Metric label="Illustrative lifecycle events" value={integer(events.length)} description="Selected preview scenario"/><Metric label="DRUNIX references verified" value="0" description="Backend gateway not connected"/><Metric label="Unreconciled ledger operations" value="Unknown" description="Requires status API"/></div>
  <Card className="mt-5" title={mode==='audit'?'Lifecycle activity':'Transaction history'} description="Preview event records are not real financial or blockchain transaction evidence">
@@ -63,15 +63,7 @@ export function Intelligence(){
  </Card></div>
  </>;
 }
-const components=['FastAPI','Application database','Go gateway','DRUNIX peers','Ordering service','Validation service','DRUNIX state database'];
 export function System(){
- const {systemStatus,loadingStatus,backendReady}=useApp();
- const getStatus=(name:string)=>systemStatus?.components?.find(c=>c.name.toLowerCase()===name.toLowerCase())?.status||'UNAVAILABLE';
- return <><SectionHeading title="System Status" description="Operational transparency for the Python application and the DRUNIX network."/>
- <div className="grid gap-4 md:grid-cols-3"><Metric label="Python backend" value={backendReady?'Responding':'Not connected'} description="HTTP availability is not ledger readiness"/><Metric label="DRUNIX evidence" value="Unverified" description="Verify individual transaction commitment"/><Metric label="Last successful ledger operation" value="Not available" description="Actual transaction reference required"/></div>
- <Card className="mt-5" title="Infrastructure components" description="No network secrets, certificates or internal topology details exposed">
-  {loadingStatus&&<p role="status" className="mb-4 text-sm text-slate-500">Checking API status…</p>}
-  <div className="data-table-wrap"><table className="data-table w-full"><thead><tr><th>Component</th><th>Observed status</th><th>Explanation</th></tr></thead><tbody>{components.map(name=><tr key={name}><td className="font-semibold">{name}</td><td><Status value={getStatus(name)}/></td><td>{getStatus(name)==='UNAVAILABLE'?'No verified integration status returned.':'Reported by Python system API'}</td></tr>)}</tbody></table></div>
- </Card><div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><div className="flex items-center gap-2 font-semibold"><Info size={18}/> Integration boundary</div><p className="mt-1 text-xs">The frontend checks <code>GET /api/v1/system/status</code> when a Python API URL is configured. A healthy FastAPI response does not imply DRUNIX ordering, endorsement or commit capability is operational.</p></div>
- </>;
+ const {mode,systemStatus,loadingStatus,statusError,retryStatus,backendConfigured}=useApp();
+ return <SystemStatusView mode={mode} configured={backendConfigured} data={systemStatus} loading={loadingStatus} error={statusError} retry={retryStatus}/>;
 }

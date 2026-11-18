@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {AlertTriangle,Landmark,LockKeyhole,ShieldCheck,Wallet} from 'lucide-react';
-import {useApp} from '../app/context';
+import {usePreview} from '../app/context';
 import {route} from '../api/contracts';
 import type {NewPledge} from '../api/contracts';
 import {phaseIndex,inr,integer,sample} from '../demo/scenario';
@@ -10,7 +10,7 @@ import {ReviewDialog} from '../components/ui/dialog';
 import {Field,DataRow} from '../components/ui/form';
 import {Status} from '../components/ui/status';
 export function Collateral(){
- const {phase,holding,submit,submitting,notify}=useApp();
+ const {phase,holding,submit,submitting,notify}=usePreview();
  const [quantity,setQuantity]=useState(200),[transfer,setTransfer]=useState(350),[open,setOpen]=useState(false);
  const valid=Number.isSafeInteger(quantity)&&quantity>0&&quantity<=holding.available;
  const ltv=60;
@@ -40,7 +40,7 @@ export function Collateral(){
  </>;
 }
 export function Lending(){
- const {role,phase,holding,submit,submitting,notify}=useApp();
+ const {role,phase,holding,submit,submitting,notify}=usePreview();
  const [open,setOpen]=useState<'apply'|'assess'|'approve'|'reject'|'disburse'|'repay'|'release'|null>(null);
  const isLender=role==='LENDER',eligible=phaseIndex(phase)>=4;
  async function confirm(){
