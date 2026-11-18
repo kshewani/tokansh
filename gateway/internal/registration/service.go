@@ -171,7 +171,7 @@ func (s *Service) Read(ctx context.Context, function, id string) (any, error) {
 	}
 	b, e := s.Ledger.Read(ctx, function, args...)
 	if e != nil {
-		return nil, e
+		return nil, classifyEvaluation(e, function)
 	}
 	switch function {
 	case "GetContractInfo":

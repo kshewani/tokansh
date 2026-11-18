@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -106,6 +107,11 @@ func Handler(s *Service, operator []byte) http.Handler {
 			return
 		}
 		if err != nil {
+			var readErr *readFailure
+			if r.Method == "GET" && errors.As(err, &readErr) {
+				respond(readErr.httpStatus, map[string]any{"error": map[string]string{"code": readErr.code, "message": readErr.message}})
+				return
+			}
 			if err == invalid {
 				fail(400, "INVALID_REQUEST")
 			} else {
