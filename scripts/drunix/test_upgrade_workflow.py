@@ -17,8 +17,8 @@ import fixtures
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('upgrade', HERE/'upgrade-workflow.py')
 u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)
-PID = '20000000-0000-4000-8000-000000000001'
-OP = '10000000-0000-4000-8000-000000000001'
+PID = 'f6169750-4676-4e99-887f-2bc5471bd518'
+OP = 'edaeabd1-78e9-4e9d-a808-92affc2a81af'
 
 
 def definition(version='1.0', sequence=1):
@@ -67,6 +67,7 @@ class FakeRunner(u.Runner):
         self.mutation_error = False
         self.cli_error = None
         self.installed_raw = None
+        self.approval_after = None
 
     def run(self, args, env=None, cwd=None, timeout=30):
         args = [str(v) for v in args]
@@ -89,8 +90,14 @@ class FakeRunner(u.Runner):
             call = json.loads(args[args.index('-c')+1])['Args'][0]
             key = {'GetAllAssets':'basic','GetRegisteredProperty':'property','GetOperation':'operation','GetContractInfo':'info'}[call]
             return json.dumps(row[key])
-        if any(v in args for v in ('install','commit')):
+        if any(v in args for v in ('install','approveformyorg','commit')):
             if self.mutation_error: raise u.Stop('UNKNOWN: simulated timeout')
+            if 'approveformyorg' in args:
+                self.approvals[org] = self.approval_after if self.approval_after is not None else approved(self.package,'1.1',2)
+                for peer in self.captured['organizations'].values():
+                    peer['channel']['height'] += 1
+                    peer['channel']['previousBlockHash'] = peer['channel']['currentBlockHash']
+                    peer['channel']['currentBlockHash'] = base64.b64encode(b'x'*32).decode()
             return 'test-only acknowledgement'
         if args[0]=='openssl': return 'test-only successful static TLS check'
         raise AssertionError('Unreviewed command in fake runner: '+str(args))
@@ -132,11 +139,11 @@ class UpgradeTests(unittest.TestCase):
         self.no_process=patch.object(u.subprocess,'run',side_effect=AssertionError('Offline test must not execute network tools'))
         self.no_process.start();self.addCleanup(self.no_process.stop)
 
-    def execute(self, phase):
+    def execute(self, phase, authorization=None):
         # A CLI invocation owns a fresh evidence directory; keep durable attempt markers.
         self.runner.evidence = Path(tempfile.mkdtemp(prefix='phase-', dir=self.release))
         self.runner.count = 0
-        u.execute(phase,self.runner,self.m,self.b,u.digest(self.manifest))
+        u.execute(phase,self.runner,self.m,self.b,u.digest(self.manifest),authorization)
 
     def assert_stops(self, phase):
         with self.assertRaises((u.Stop,SystemExit,ValueError,TypeError,KeyError)):
@@ -211,6 +218,7 @@ class UpgradeTests(unittest.TestCase):
             self.runner.readiness=value;self.assert_stops('readiness');self.assert_stops('commit')
         self.assertEqual(self.runner.mutations(),[])
         self.runner.readiness={'approvals':{'Org1MSP':True,'Org2MSP':True}}
+        self.execute('verify-approval-org1');self.execute('verify-approval-org2')
         self.execute('readiness');self.assertEqual(self.runner.mutations(),[])
         for target,field in [('property','approved_supply'),('operation','request_digest')]:
             original=copy.deepcopy(self.runner.captured)
@@ -234,7 +242,7 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(self.runner.mutations(),[])
 
     def test_commit_one_attempt_tls_destinations_and_separate_verification(self):
-        self.runner.installed_all();self.execute('commit')
+        self.runner.installed_all();self.execute('verify-approval-org1');self.execute('verify-approval-org2');self.execute('commit')
         self.assertEqual(len(self.runner.mutations()),1)
         args,env=next((a,e) for a,e in self.runner.calls if 'commit' in a)
         self.assertNotIn('CORE_PEER_TLS_SERVERHOSTOVERRIDE',env)
@@ -272,6 +280,7 @@ class UpgradeTests(unittest.TestCase):
         for org in ('1', '2'):
             self.runner.captured['organizations'][org]['basic'].reverse()
         self.runner.installed_all()
+        self.execute('verify-approval-org1');self.execute('verify-approval-org2')
         self.execute('readiness')
         for org in ('1', '2'):
             self.runner.captured['organizations'][org]['basic'][0]['Owner'] = 'different-owner'
@@ -339,6 +348,436 @@ class UpgradeTests(unittest.TestCase):
                 '--context-sha256',u.digest(self.manifest),'--deployment-id',self.m['deployment_id']])
         self.assertEqual(len(self.runner.mutations()),1)
         self.assertFalse((self.release/'attempt-commit.json').exists())
+
+
+class DesiredApprovalTests(unittest.TestCase):
+    setUp = UpgradeTests.setUp
+    execute = UpgradeTests.execute
+    assert_stops = UpgradeTests.assert_stops
+    # Reuse fixture construction without duplicating all original inherited tests.
+    def authorization(self, org='1'):
+        path = self.release/('approval-org'+org+'.json')
+        value = dict(schema_version=2,organization='Org'+org+'MSP',channel='mychannel',chaincode='tokansh',
+            version='1.1',sequence=2,package_id=self.m['package_id'],context_sha256=u.digest(self.manifest),
+            deployment_id=self.m['deployment_id'],acknowledgement=u.APPROVAL_ACK,maintenance_acknowledgement=u.MAINTENANCE_ACK)
+        path.write_text(json.dumps(value));path.chmod(0o600)
+        return dict(path=str(path),sha256=u.digest(path),acknowledgement=u.APPROVAL_ACK,maintenance_acknowledgement=u.MAINTENANCE_ACK)
+
+    def ambiguous(self, org='1'):
+        message = ("Error: query failed with status: 500 - failed to invoke backing implementation of "
+            "'QueryApprovedChaincodeDefinition': could not fetch approved chaincode definition "
+            "(name: 'tokansh', sequence: '2') on channel 'mychannel'")
+        self.runner.approvals[org] = u.CLIRejected(1,'',message)
+
+    def test_desired_approval_uses_native_cli_one_org_and_bound_durable_intent(self):
+        self.runner.installed_all();self.ambiguous()
+        flags = self.authorization()
+        before = copy.deepcopy(self.b)
+        self.execute('approve-org1',flags)
+        mutations=self.runner.mutations()
+        self.assertEqual(len(mutations),1)
+        self.assertIn('approveformyorg',mutations[0])
+        self.assertIn(self.m['package_id'],mutations[0])
+        self.assertIn('localhost:7061',mutations[0])
+        self.assertIn('--waitForEvent',mutations[0])
+        args,env=next((a,e) for a,e in self.runner.calls if 'approveformyorg' in a)
+        self.assertEqual(env['CORE_PEER_LOCALMSPID'],'Org1MSP')
+        self.assertIn('Admin@org1.example.com/msp',env['CORE_PEER_MSPCONFIGPATH'])
+        self.assertEqual(env['CORE_PEER_TLS_SERVERHOSTOVERRIDE'],'peer1.org1.example.com')
+        self.assertIn('--tls',args);self.assertIn('orderer.example.com',args)
+        intent=u.checks.load(self.release/'attempt-approve-org1.json')
+        self.assertEqual(intent['state'],'UNKNOWN')
+        self.assertEqual(intent['desired_state_authorization']['binding']['organization'],'Org1MSP')
+        self.assertEqual(intent['desired_state_authorization']['authorization_sha256'],flags['sha256'])
+        self.assertFalse((self.release/'attempt-approve-org2.json').exists())
+        self.assertFalse((self.release/'attempt-commit.json').exists())
+        for org in ('1','2'):
+            for field in ('property','operation','basic','definitions','approval_v1'):
+                self.assertEqual(self.runner.captured['organizations'][org][field],before['organizations'][org][field])
+        self.assertGreater(self.runner.captured['organizations']['1']['channel']['height'],before['organizations']['1']['channel']['height'])
+        self.assertFalse((self.runner.evidence/'desired-approval-observed.json').exists())
+        self.assertIn('approveformyorg',self.runner.calls[-1][0])
+        self.assertEqual(u.checks.load(self.runner.evidence/'prior-approval.json')['state'],'UNKNOWN')
+
+    def test_org2_authorization_is_independent(self):
+        self.runner.installed_all();self.ambiguous('2')
+        self.execute('approve-org2',self.authorization('2'))
+        args,env=next((a,e) for a,e in self.runner.calls if 'approveformyorg' in a)
+        self.assertIn('localhost:9061',args)
+        self.assertIn('Admin@org2.example.com/msp',env['CORE_PEER_MSPCONFIGPATH'])
+        self.assertEqual(env['CORE_PEER_LOCALMSPID'],'Org2MSP')
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+
+    def test_known_conflict_replaced_only_with_explicit_authorization(self):
+        self.runner.installed_all()
+        self.runner.approvals['1']=approved('tokansh_1.1:'+'f'*64,'2.0',2)
+        self.assert_stops('approve-org1')
+        self.assertEqual(self.runner.mutations(),[])
+        self.execute('approve-org1',self.authorization())
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertEqual(u.checks.load(self.runner.evidence/'prior-approval.json')['state'],'CONFLICT')
+
+    def test_matching_approval_is_read_only_even_with_desired_acknowledgement(self):
+        self.runner.installed_all()
+        self.execute('approve-org1',self.authorization())
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+
+    def test_authorization_mismatch_fields_types_hash_and_ack_fail_before_queries(self):
+        flags=self.authorization();path=Path(flags['path']);original=json.loads(path.read_text())
+        for key,value in [('organization','Org2MSP'),('channel','other'),('chaincode','basic'),('version','1.0'),
+                ('sequence',1),('sequence',True),('package_id','tokansh_1.1:'+'0'*64),('context_sha256','0'*64),
+                ('deployment_id','other-release'),('schema_version',True),('acknowledgement','yes')]:
+            changed=dict(original);changed[key]=value;path.write_text(json.dumps(changed))
+            with self.subTest(key=key),self.assertRaises(u.Stop):
+                self.execute('approve-org1',dict(flags,sha256=u.digest(path)))
+        path.write_text(json.dumps(original))
+        for changed in (dict(flags,sha256='0'*64),dict(flags,acknowledgement='yes')):
+            with self.assertRaises(u.Stop):self.execute('approve-org1',changed)
+        for key in original:
+            changed=dict(original);del changed[key];path.write_text(json.dumps(changed))
+            with self.subTest(missing=key),self.assertRaises(u.Stop):
+                self.execute('approve-org1',dict(flags,sha256=u.digest(path)))
+        self.assertEqual(self.runner.calls,[])
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_authorization_duplicate_keys_unknown_fields_permissions_and_wrong_phase(self):
+        flags=self.authorization();path=Path(flags['path']);original=path.read_text()
+        for body in (original[:-1]+',"sequence":2}',original[:-1]+',"extra":true}','{broken','null'):
+            path.write_text(body)
+            with self.assertRaises((u.Stop,SystemExit,ValueError)):
+                self.execute('approve-org1',dict(flags,sha256=u.digest(path)))
+        path.write_text(original);path.chmod(0o644)
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        path.chmod(0o600)
+        with self.assertRaises(u.Stop):self.execute('commit',flags)
+        self.assertEqual(self.runner.calls,[])
+
+    def test_malformed_approval_or_unrelated_cli_failure_never_authorizes_write(self):
+        self.runner.installed_all();flags=self.authorization()
+        for value in ({},None,approved(self.m['package_id'],'1.1',1),
+                u.CLIRejected(1,'','connection unavailable'),u.CLIRejected(1,'','access denied'),
+                u.CLIRejected(1,'','TLS verification failed'),u.Stop('UNKNOWN: timeout')):
+            self.runner.approvals['1']=value
+            with self.subTest(value=str(type(value))),self.assertRaises((u.Stop,SystemExit)):
+                self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_timeout_or_failed_postcheck_never_causes_resubmission(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        self.runner.mutation_error=True
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.runner.mutation_error=False
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertTrue((self.release/'attempt-approve-org1.json').exists())
+        # Late read reconciliation may observe the desired state without another
+        # submission or claiming the original command's transaction committed.
+        self.runner.approvals['1']=approved(self.m['package_id'],'1.1',2)
+        self.execute('approve-org1',flags)
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertFalse((self.runner.evidence/'desired-approval-observed.json').exists())
+
+    def test_acknowledged_approval_with_wrong_poststate_stays_unresolved(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        self.runner.approval_after=approved('tokansh_1.1:'+'f'*64,'1.1',2)
+        self.execute('approve-org1',flags)
+        with self.assertRaises(u.Stop):self.execute('verify-approval-org1')
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertTrue((self.release/'acknowledged-approve-org1.json').exists())
+        self.assertFalse((self.runner.evidence/'desired-approval-observed.json').exists())
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(len(self.runner.mutations()),1)
+
+    def test_preservation_peers_package_or_tls_failure_blocks_desired_approval(self):
+        self.runner.installed_all();flags=self.authorization();self.ambiguous()
+        original=copy.deepcopy(self.runner.captured)
+        for field in ('property','operation','basic','channel','definitions'):
+            self.runner.captured=copy.deepcopy(original)
+            self.runner.captured['organizations']['2'][field]={} if field!='basic' else []
+            with self.assertRaises((u.Stop,SystemExit,KeyError,TypeError)):
+                self.execute('approve-org1',flags)
+        self.runner.captured=original
+        self.runner.installed_rows['1']=[]
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.runner.installed_all()
+        with patch.object(self.runner,'tls_commit',side_effect=u.Stop('TLS mismatch')):
+            with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_cli_partial_duplicate_or_wrong_org_acknowledgements_stop(self):
+        flags=self.authorization()
+        common=['approve-org1','--authorize-approve-org1','--context',str(self.manifest),
+            '--context-sha256',u.digest(self.manifest),'--deployment-id',self.m['deployment_id']]
+        with patch.object(u,'Runner',return_value=self.runner):
+            for extra in (['--desired-state-authorization',flags['path']],
+                    ['--context',str(self.manifest)],['--authorization-sha256',flags['sha256']],
+                    ['--acknowledge-replacement-and-repair','yes']):
+                with self.assertRaises(u.Stop):u.main(common+extra)
+        self.assertEqual(self.runner.calls,[])
+
+    def test_org2_approval_requires_org2_authorization_and_org2_admin_only(self):
+        self.runner.installed_all();self.ambiguous('2')
+        flags1=self.authorization('1');flags2=self.authorization('2')
+        with self.assertRaises(u.Stop):self.execute('approve-org2',flags1)
+        self.assertEqual(self.runner.calls,[])
+        self.execute('approve-org2',flags2)
+        native=[(a,e) for a,e in self.runner.calls if 'approveformyorg' in a]
+        self.assertEqual(len(native),1)
+        args,env=native[0]
+        self.assertIn('localhost:9061',args);self.assertNotIn('localhost:7061',args)
+        self.assertEqual(env['CORE_PEER_LOCALMSPID'],'Org2MSP')
+        self.assertIn('Admin@org2.example.com/msp',env['CORE_PEER_MSPCONFIGPATH'])
+        self.assertEqual(env['CORE_PEER_TLS_SERVERHOSTOVERRIDE'],'peer1.org2.example.com')
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+        self.assertTrue((self.release/'attempt-approve-org2.json').exists())
+
+    def test_durable_bound_intent_exists_before_native_execution_and_crash_blocks_repeat(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        original=self.runner.run
+        launches=[]
+        def crash(args,*a,**kw):
+            if 'approveformyorg' in args:
+                intent=u.checks.load(self.release/'attempt-approve-org1.json')
+                auth=intent['desired_state_authorization']
+                self.assertEqual(auth['authorization_sha256'],flags['sha256'])
+                self.assertEqual(auth['binding']['package_id'],self.m['package_id'])
+                self.assertEqual(auth['binding']['context_sha256'],u.digest(self.manifest))
+                launches.append(list(args))
+                raise KeyboardInterrupt('test-only process crash')
+            return original(args,*a,**kw)
+        with patch.object(self.runner,'run',side_effect=crash):
+            with self.assertRaises(KeyboardInterrupt):self.execute('approve-org1',flags)
+        self.assertEqual(len(launches),1)
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertFalse((self.release/'acknowledged-approve-org1.json').exists())
+
+    def test_conflicting_and_unavailable_sources_require_explicit_replacement(self):
+        self.runner.installed_all()
+        self.runner.approvals['1']=approved('tokansh_1.1:'+'f'*64,'2.0',2)
+        with self.assertRaises(u.Stop):self.execute('approve-org1')
+        self.assertEqual(self.runner.mutations(),[])
+        self.execute('approve-org1',self.authorization())
+        self.assertEqual(len(self.runner.mutations()),1)
+        # Independent Org2 approval can repair the native valid unavailable source.
+        value=approved(self.m['package_id'],'1.1',2)
+        value['source']={'Type':{'Unavailable':{}}}
+        self.runner.approvals['2']=value
+        self.execute('verify-approval-org1')
+        self.execute('approve-org2',self.authorization('2'))
+        self.assertEqual(len(self.runner.mutations()),2)
+
+    def test_known_error_with_extra_content_wrong_scope_or_rc_is_not_repair_authorization(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        error=self.runner.approvals['1']
+        for candidate in (u.CLIRejected(9,'',error.stderr),u.CLIRejected(1,'unexpected stdout',error.stderr),
+                u.CLIRejected(1,'',error.stderr+' extra'),
+                u.CLIRejected(1,'',error.stderr.replace("sequence: '2'","sequence: '1'")),
+                u.CLIRejected(1,'',error.stderr.replace('mychannel','otherchannel'))):
+            self.runner.approvals['1']=candidate
+            with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertNotIn('secret-test-value',str(u.CLIRejected(1,'secret-test-value','secret-test-value')))
+
+    def test_changed_package_or_authorization_is_rejected_again_before_intent(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        original=self.runner.tls_approval
+        def change_package(org):
+            original(org)
+            Path(self.m['package_path']).write_bytes(b'changed-in-test')
+        with patch.object(self.runner,'tls_approval',side_effect=change_package):
+            with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+        Path(self.m['package_path']).write_bytes(b'offline-test-only-package')
+        def change_authorization(org):
+            original(org)
+            value=json.loads(Path(flags['path']).read_text());value['organization']='Org2MSP'
+            Path(flags['path']).write_text(json.dumps(value))
+        with patch.object(self.runner,'tls_approval',side_effect=change_authorization):
+            with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+
+    def test_malformed_duplicate_unknown_or_case_variant_authorization_fails_closed(self):
+        flags=self.authorization();path=Path(flags['path']);original=path.read_text()
+        for body in ('{}','null','[]','{broken',original[:-1]+',"sequence":2}',
+                original[:-1]+',"extra":true}',original.replace('"organization"','"Organization"',1)):
+            path.write_text(body)
+            with self.assertRaises((u.Stop,SystemExit,ValueError)):
+                self.execute('approve-org1',dict(flags,sha256=u.digest(path)))
+        self.assertEqual(self.runner.calls,[])
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+
+    def test_post_approval_preservation_failure_retains_unknown_and_stops(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        original=self.runner.run
+        def alter_receipt(args,*a,**kw):
+            result=original(args,*a,**kw)
+            if 'approveformyorg' in args:
+                for org in ('1','2'):
+                    self.runner.captured['organizations'][org]['operation']['request_digest']='c'*64
+            return result
+        with patch.object(self.runner,'run',side_effect=alter_receipt):
+            self.execute('approve-org1',flags)
+        with self.assertRaises(u.Stop):self.execute('verify-approval-org1')
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertTrue((self.release/'attempt-approve-org1.json').exists())
+        self.assertTrue((self.release/'acknowledged-approve-org1.json').exists())
+        self.assertFalse((self.runner.evidence/'desired-approval-observed.json').exists())
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(len(self.runner.mutations()),1)
+
+    def test_already_committed_sequence2_cannot_reassociate_package(self):
+        self.runner.installed_all();flags=self.authorization()
+        for org in ('1','2'):
+            row=self.runner.captured['organizations'][org]
+            row['definitions']['tokansh']=definition('1.1',2)
+            row['info']['functions']=u.M4_FUNCTIONS
+            row['channel']['height']+=1
+            row['channel']['currentBlockHash']=base64.b64encode(b'y'*32).decode()
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        self.assertFalse((self.release/'attempt-approve-org1.json').exists())
+
+    def test_main_dispatches_exact_one_desired_approval(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        with patch.object(u,'Runner',return_value=self.runner):
+            u.main(['approve-org1','--authorize-approve-org1','--context',str(self.manifest),
+                '--context-sha256',u.digest(self.manifest),'--deployment-id',self.m['deployment_id'],
+                '--desired-state-authorization',flags['path'],'--authorization-sha256',flags['sha256'],
+                '--acknowledge-replacement-and-repair',u.APPROVAL_ACK,'--acknowledge-maintenance-window',u.MAINTENANCE_ACK])
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertIn('approveformyorg',self.runner.mutations()[0])
+
+
+class IndependentApprovalVerificationTests(unittest.TestCase):
+    setUp = UpgradeTests.setUp
+    execute = UpgradeTests.execute
+    assert_stops = UpgradeTests.assert_stops
+    authorization = DesiredApprovalTests.authorization
+    ambiguous = DesiredApprovalTests.ambiguous
+
+    def latest(self,org='1'):
+        return u.checks.load(u.verification_files(self.release,org)[-1])
+
+    def test_no_automatic_verification_and_readiness_requires_both_independent_matches(self):
+        self.runner.installed_all();self.ambiguous()
+        self.execute('approve-org1',self.authorization())
+        self.assertIn('approveformyorg',self.runner.calls[-1][0])
+        self.assertEqual(u.verification_files(self.release,'1'),[])
+        with self.assertRaises(u.Stop):self.execute('readiness')
+        self.execute('verify-approval-org1')
+        result=self.latest()
+        self.assertEqual(result['observation']['state'],'MATCH')
+        self.assertTrue(result['original_attempt']['native_acknowledgement_present'])
+        self.assertEqual(result['original_attempt']['transaction_validation'],'UNKNOWN')
+        with self.assertRaises(u.Stop):self.execute('readiness')
+        self.execute('verify-approval-org2')
+        self.execute('readiness')
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertFalse((self.release/'attempt-commit.json').exists())
+
+    def test_timeout_recovery_is_independent_read_only_and_never_claims_original_validity(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        self.runner.mutation_error=True
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.runner.mutation_error=False
+        with self.assertRaises(u.Stop):self.execute('verify-approval-org1')
+        self.assertEqual(self.latest()['observation']['state'],'UNKNOWN')
+        self.runner.approvals['1']=approved(self.m['package_id'],'1.1',2)
+        self.execute('approve-org1',flags)  # inspection only
+        self.assertEqual(len(u.verification_files(self.release,'1')),1)
+        self.execute('verify-approval-org1')
+        result=self.latest()
+        self.assertEqual(result['observation']['state'],'MATCH')
+        self.assertFalse(result['original_attempt']['native_acknowledgement_present'])
+        self.assertEqual(result['original_attempt']['transaction_validation'],'UNKNOWN')
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.assertTrue((self.release/'attempt-approve-org1.json').exists())
+
+    def test_independent_conflict_incomplete_unknown_and_newest_record_block_progress(self):
+        self.runner.installed_all();self.execute('verify-approval-org1');self.execute('verify-approval-org2')
+        self.execute('readiness')
+        cases=[('CONFLICT',approved('tokansh_1.1:'+'f'*64,'1.1',2)),
+               ('INCOMPLETE',dict(approved(self.m['package_id'],'1.1',2),source={'Type':{'Unavailable':{}}})),
+               ('UNKNOWN',u.Stop('UNKNOWN: timed out'))]
+        for state,value in cases:
+            self.runner.approvals['1']=value
+            with self.assertRaises(u.Stop):self.execute('verify-approval-org1')
+            self.assertEqual(self.latest()['observation']['state'],state)
+            self.runner.approvals['1']=approved(self.m['package_id'],'1.1',2)
+            with self.assertRaises(u.Stop):self.execute('readiness')
+        self.assertEqual(len(u.verification_files(self.release,'1')),4)
+        self.execute('verify-approval-org1');self.execute('readiness')
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_verification_failure_does_not_leave_older_match_usable(self):
+        self.runner.installed_all();self.execute('verify-approval-org1');self.execute('verify-approval-org2')
+        original=copy.deepcopy(self.runner.captured)
+        self.runner.captured['organizations']['1']['property']['approved_supply']=101
+        with self.assertRaises(u.Stop):self.execute('verify-approval-org1')
+        self.assertEqual(self.latest()['observation']['state'],'UNKNOWN')
+        self.assertFalse(self.latest()['preservation_verified'])
+        self.runner.captured=original
+        with self.assertRaises(u.Stop):self.execute('readiness')
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_forged_scope_or_changed_approval_cannot_reuse_verification(self):
+        self.runner.installed_all();self.execute('verify-approval-org1');self.execute('verify-approval-org2')
+        path=u.verification_files(self.release,'1')[-1]
+        original=self.latest()
+        for field,value in [('context_sha256','0'*64),('organization','Org2MSP'),('package_id','wrong'),('sequence',True)]:
+            changed=copy.deepcopy(original);changed['scope'][field]=value
+            path.write_text(json.dumps(changed))
+            with self.assertRaises(u.Stop):self.execute('readiness')
+        path.write_text(json.dumps(original))
+        self.runner.approvals['1']=approved('tokansh_1.1:'+'f'*64,'1.1',2)
+        with self.assertRaises(u.Stop):self.execute('readiness')
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_omitted_false_init_requirement_is_canonical_across_independent_reads(self):
+        self.runner.installed_all()
+        for org in ('1','2'):self.runner.approvals[org].pop('init_required')
+        self.execute('verify-approval-org1');self.execute('verify-approval-org2')
+        self.assertIs(self.latest()['observation']['observed']['init_required'],False)
+        self.execute('readiness')
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_maintenance_acknowledgement_and_schema_are_mandatory(self):
+        flags=self.authorization();self.runner.installed_all();self.ambiguous()
+        for text in ('', 'yes', 'No competing operators'):
+            changed=dict(flags,maintenance_acknowledgement=text)
+            with self.assertRaises(u.Stop):self.execute('approve-org1',changed)
+        path=Path(flags['path']);value=json.loads(path.read_text());value['schema_version']=1
+        path.write_text(json.dumps(value));flags['sha256']=u.digest(path)
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.calls,[])
+
+    def test_wrong_admin_or_known_commit_attempt_prevents_approval(self):
+        self.runner.installed_all();self.ambiguous();flags=self.authorization()
+        original=self.runner.env_for
+        def wrong_admin(org,lite=False,application=False):
+            env=original(org,lite,application)
+            if org=='1' and not lite and not application:env['CORE_PEER_LOCALMSPID']='Org2MSP'
+            return env
+        with patch.object(self.runner,'env_for',side_effect=wrong_admin):
+            with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+        u.save(self.release/'attempt-commit.json',dict(state='UNKNOWN'))
+        with self.assertRaises(u.Stop):self.execute('approve-org1',flags)
+        self.assertEqual(self.runner.mutations(),[])
+
+    def test_other_org_unverified_attempt_blocks_competing_approval(self):
+        self.runner.installed_all();self.ambiguous('1');self.ambiguous('2')
+        self.execute('approve-org1',self.authorization('1'))
+        with self.assertRaises(u.Stop):self.execute('approve-org2',self.authorization('2'))
+        self.assertEqual(len(self.runner.mutations()),1)
+        self.execute('verify-approval-org1')
+        self.execute('approve-org2',self.authorization('2'))
+        self.assertEqual(len(self.runner.mutations()),2)
 
 
 class PackagingTests(unittest.TestCase):

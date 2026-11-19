@@ -1,7 +1,7 @@
 """M4.1 local-only upgrade: one authorized phase, strict inspection, no retries.
 
-Fresh approval is deliberately unavailable: the pinned DRUNIX SCC has no safe
-absence signal. This runner never calls approveformyorg or business invocations.
+Approval absence is never inferred. Native one-shot desired-state approval needs
+an independently bound replacement/repair acknowledgement. No business invocations.
 """
 import argparse
 import fcntl
@@ -33,13 +33,23 @@ POLICY = "AND('Org1MSP.peer','Org2MSP.peer')"
 FUNCTIONS = ['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty']
 M4_FUNCTIONS = FUNCTIONS + ['IssueANSH', 'GetIssuanceState', 'GetBalance', 'GetIssuanceOperation']
 PHASES = ['package', 'preflight', 'install-org1', 'install-org2', 'approve-org1',
-          'approve-org2', 'readiness', 'commit', 'verify']
+          'approve-org2', 'verify-approval-org1', 'verify-approval-org2', 'readiness', 'commit', 'verify']
 PARAMS = dict(channel='mychannel', chaincode='tokansh', current_version='1.0',
               current_sequence=1, version='1.1', sequence=2, policy=POLICY, init_required=False)
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+APPROVAL_ACK = ('I authorize one attempt to establish the reviewed TokANSH version 1.1 sequence-2 approval '
+                'for this organization, including replacement or repair of an existing uncommitted approval.')
+MAINTENANCE_ACK = ('I confirm an operator-controlled maintenance window on mychannel with no competing '
+                   'lifecycle operators or known in-flight lifecycle operations.')
 
 class Stop(Exception):
     pass
+
+class CLIRejected(Stop):
+    """Private diagnostics; str(error) is always sanitized, including at top level."""
+    def __init__(self, returncode, stdout, stderr):
+        super().__init__('UNKNOWN: CLI failed; absence/effect not established, no retry')
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
 
 def require(ok, message='Malformed or conflicting upgrade input'):
     if not ok:
@@ -62,6 +72,120 @@ def identifier(value):
 def release_id(value):
     require(isinstance(value, str) and re.fullmatch('[A-Za-z0-9_-]{8,80}', value) is not None)
     return value
+
+def desired_state_authorization(phase, manifest, binding, flags):
+    require(phase in ('approve-org1', 'approve-org2'), 'Desired-state authorization is organization-specific to approval')
+    fields(flags, ['path', 'sha256', 'acknowledgement', 'maintenance_acknowledgement'])
+    require(flags['acknowledgement'] == APPROVAL_ACK, 'Exact replacement/repair acknowledgement required')
+    require(flags['maintenance_acknowledgement'] == MAINTENANCE_ACK, 'Explicit exclusive maintenance-window acknowledgement required')
+    path = external(flags['path'], Path(manifest['network_root']))
+    require(path.parent == Path(manifest['release_directory']), 'Approval authorization must belong to this release')
+    private(path)
+    require(path.stat().st_size <= 4096 and digest(path) == sha(flags['sha256']), 'Reviewed approval authorization hash mismatch')
+    value = checks.load(path)
+    expected = dict(schema_version=2, **approval_scope(manifest, binding, phase[-1]),
+                    acknowledgement=APPROVAL_ACK, maintenance_acknowledgement=MAINTENANCE_ACK)
+    fields(value, expected)
+    require(all(type(value[k]) is type(v) and value[k] == v for k,v in expected.items()),
+            'Approval authorization does not match this organization/reviewed release')
+    return dict(binding=value, authorization_sha256=flags['sha256'])
+
+def approval_scope(manifest, binding, org):
+    return dict(organization='Org'+org+'MSP', channel=manifest['channel'], chaincode=manifest['chaincode'],
+        version=manifest['version'], sequence=manifest['sequence'], package_id=manifest['package_id'],
+        context_sha256=sha(binding), deployment_id=manifest['deployment_id'])
+
+def verification_files(release, org):
+    paths = sorted(release.glob('approval-verification-org'+org+'-*.json'))
+    require(all(re.fullmatch('approval-verification-org'+org+r'-[0-9]{8}\.json', p.name) for p in paths),
+            'Malformed approval-verification filename; manual review required')
+    return paths
+
+def save_approval_verification(runner, manifest, binding, org, observation, current_channel, preserved, evidence):
+    paths = verification_files(runner.release,org)
+    number = int(paths[-1].stem.rsplit('-',1)[1])+1 if paths else 1
+    require(number <= 99999999)
+    path = runner.release/f'approval-verification-org{org}-{number:08}.json'
+    save(path,dict(schema_version=1,scope=approval_scope(manifest,binding,org),observation=observation,
+                  channel=current_channel,preservation_verified=preserved,original_attempt=evidence))
+
+def require_verification(runner, manifest, binding, org, observed, current_channel):
+    paths = verification_files(runner.release, org)
+    require(bool(paths), 'Separate organization approval verification is required')
+    path = paths[-1]; private(path)
+    value = checks.load(path)
+    fields(value, ['schema_version','scope','observation','channel','preservation_verified','original_attempt'])
+    require(type(value['schema_version']) is int and value['schema_version'] == 1
+            and value['scope'] == approval_scope(manifest, binding, org)
+            and type(value['scope']['sequence']) is int and value['preservation_verified'] is True,
+            'Approval verification is not bound to this reviewed context')
+    observation = value['observation']
+    require(isinstance(observation, dict) and observation.get('state') == 'MATCH',
+            'Latest approval verification is not MATCH; manual review required')
+    fields(observation,['state','observed'])
+    approval(observation['observed'], '1.1', 2, manifest['package_id'])
+    require(observation['observed'] == observed, 'Approval changed after independent verification')
+    previous, current = channel(value['channel']), channel(current_channel)
+    require(current['height'] >= previous['height'], 'Verification is ahead of current ledger')
+    if current['height'] == previous['height']: require(current == previous, 'Verification channel hashes disagree')
+    evidence = value['original_attempt']
+    require(isinstance(evidence,dict) and evidence.get('transaction_validation') == 'UNKNOWN'
+            and type(evidence.get('present')) is bool and type(evidence.get('native_acknowledgement_present')) is bool
+            and evidence == original_attempt_evidence(runner,manifest,binding,org),
+            'Unsupported transaction-validation evidence; never infer COMMITTED_VALID')
+    return value
+
+def original_attempt_evidence(runner, manifest, binding, org):
+    marker = runner.release/('attempt-approve-org'+org+'.json')
+    ack = runner.release/('acknowledged-approve-org'+org+'.json')
+    result = dict(present=marker.exists(), native_acknowledgement_present=ack.exists(),
+                  transaction_validation='UNKNOWN',
+                  limitation='Approval state and CLI acknowledgement do not identify/validate the original transaction.')
+    if marker.exists():
+        private(marker); intent=checks.load(marker)
+        require(intent.get('state') == 'UNKNOWN' and intent.get('phase') == 'approve-org'+org
+                and intent.get('context_sha256') == binding, 'Attempt marker belongs to another operation/context')
+        authorization = intent.get('desired_state_authorization')
+        fields(authorization, ['binding','authorization_sha256'])
+        expected = dict(schema_version=2, **approval_scope(manifest,binding,org),
+                        acknowledgement=APPROVAL_ACK,maintenance_acknowledgement=MAINTENANCE_ACK)
+        require(isinstance(authorization['binding'],dict) and set(authorization['binding']) == set(expected)
+                and all(type(authorization['binding'][k]) is type(v) and authorization['binding'][k] == v for k,v in expected.items()),
+                'Attempt marker authorization mismatch')
+        sha(authorization['authorization_sha256'])
+        result['intent_sha256'] = digest(marker)
+        if 'command_evidence_directory' in intent:
+            directory = external(intent['command_evidence_directory'],runner.network)
+            require(directory.parent == runner.release, 'Unexpected command evidence location')
+            private(directory,True)
+            # Retain references for manual examination, never parse log text as
+            # proof of the original transaction's identity or validation result.
+            result['diagnostics_directory'] = str(directory)
+    else:
+        require(not ack.exists(), 'Orphaned acknowledgement without durable intent')
+    if ack.exists():
+        private(ack); value=checks.load(ack)
+        fields(value,['state','context_sha256'])
+        require(value['state'] == 'ACKNOWLEDGED_NOT_VERIFIED' and value['context_sha256'] == binding,
+                'Acknowledgement context mismatch')
+        result['native_acknowledgement_sha256'] = digest(ack)
+    return result
+
+def verify_approval(runner, manifest, baseline, binding, org, actual):
+    evidence = original_attempt_evidence(runner,manifest,binding,org)
+    try:
+        observation = runner.observe_desired_approval(org,manifest['package_id'])
+    except (Stop,SystemExit,ValueError,TypeError,KeyError,AttributeError):
+        observation = dict(state='UNKNOWN',reason='Approval inspection failed; inspect private diagnostics')
+    # Separate command; stable snapshot must cover the independent observation.
+    after = runner.capture(manifest['deployment_id'],baseline['property_id'],baseline['operation_id'])
+    preserve(baseline,after,False)
+    require(after['organizations']['1']['channel'] == actual['organizations']['1']['channel'],
+            'Channel changed during independent approval verification')
+    save_approval_verification(runner,manifest,binding,org,observation,
+                               after['organizations'][org]['channel'],True,evidence)
+    require(observation['state'] == 'MATCH', observation['state']+': approval not verified; no progression authorized')
+    print('MATCH: independent desired-state/preservation verification recorded. Original transaction validation remains UNKNOWN. STOP.')
 
 def external(value, network=None):
     require(isinstance(value, str) and value.startswith('/') and not any(c in value for c in '\0\r\n'))
@@ -246,8 +370,10 @@ class Runner:
                                         stdout=out, stderr=err, timeout=timeout, check=False)
             except (OSError, subprocess.TimeoutExpired):
                 raise Stop('UNKNOWN: command unavailable or timed out; inspect private evidence, no retry') from None
-        require(result.returncode == 0, 'UNKNOWN: CLI failed; absence/effect not established, no retry')
-        return (self.evidence/f'{self.count:03}.stdout').read_text()
+        stdout = (self.evidence/f'{self.count:03}.stdout').read_text()
+        if result.returncode != 0:
+            raise CLIRejected(result.returncode, stdout, (self.evidence/f'{self.count:03}.stderr').read_text())
+        return stdout
 
     def query(self, args, org='1', lite=False, application=False):
         return checks.parse_json(self.run([self.peer]+args, self.env_for(org, lite, application)))
@@ -268,6 +394,40 @@ class Runner:
         value = self.query(['lifecycle','chaincode','queryapproved','-C','mychannel','--name','tokansh','--sequence',str(sequence),'--output','json'], org)
         approval(value, version, sequence, package_id)
         return {**value, 'init_required': value.get('init_required', False)}
+
+    def observe_desired_approval(self, org, package_id):
+        try:
+            value = self.query(['lifecycle','chaincode','queryapproved','-C','mychannel','--name','tokansh',
+                                '--sequence','2','--output','json'], org)
+        except CLIRejected as error:
+            # This exact source-reviewed error means ABSENT OR INCOMPLETE, never
+            # verified absence. Only explicit desired-state repair may proceed.
+            message = ("query failed with status: 500 - failed to invoke backing implementation of "
+                       "'QueryApprovedChaincodeDefinition': could not fetch approved chaincode definition "
+                       "(name: 'tokansh', sequence: '2') on channel 'mychannel'")
+            require(error.returncode == 1 and not error.stdout.strip() and
+                    error.stderr.strip() in (message, 'Error: '+message),
+                    'UNKNOWN: unrecognized approval-query failure; no approval authorized')
+            return dict(state='UNKNOWN',reason='Native query cannot distinguish absence from partial state',repair_supported=True)
+        inspect.definition(value, False)
+        require(value['sequence'] == 2, 'Approval query returned an unexpected sequence')
+        # Native encoding/json omits false init_required. Compare the same
+        # canonical lifecycle record as approval(), without changing its meaning.
+        value = {**value, 'init_required': value.get('init_required', False)}
+        # Unknown/malformed JSON/source shapes stop; a valid unavailable source
+        # is a known native representation that the explicit repair can replace.
+        source = value.get('source'); fields(source, ['Type'])
+        source = source['Type']
+        if isinstance(source, dict) and set(source) == {'Unavailable'}:
+            fields(source['Unavailable'], [])
+            return dict(state='INCOMPLETE',observed=value,reason='Native package source is unavailable',repair_supported=True)
+        fields(source, ['LocalPackage']); fields(source['LocalPackage'], ['package_id'])
+        inspect.package(source['LocalPackage']['package_id'])
+        try:
+            approval(value, '1.1', 2, package_id)
+        except Stop:
+            return dict(state='CONFLICT',observed=value,repair_supported=True)
+        return dict(state='MATCH', observed=value)
 
     def capture(self, deployment_id, property_id, operation_id):
         result = dict(schema_version=1, deployment_id=deployment_id, channel='mychannel',
@@ -299,13 +459,17 @@ class Runner:
         for org in ('1','2'):
             readiness(self.query(['lifecycle','chaincode','checkcommitreadiness']+args+['--output','json'], org))
 
-    def mutate_once(self, phase, args, env, binding):
+    def mutate_once(self, phase, args, env, binding, authorization=None):
         marker = self.release / ('attempt-' + phase + '.json')
         require(not marker.exists(), 'Prior mutation attempt exists; inspect outcome, do not repeat')
         # Durable UNKNOWN intent precedes process creation. Never overwritten/deleted,
         # even if the process dies before/after acknowledgement. Later inspection is separate.
-        save(marker, dict(state='UNKNOWN', phase=phase, context_sha256=binding,
-                          note='One lifecycle attempt authorized; outcome requires independent inspection'))
+        intent = dict(state='UNKNOWN', phase=phase, context_sha256=binding,
+                      note='One lifecycle attempt authorized; outcome requires independent inspection')
+        if authorization is not None:
+            intent['desired_state_authorization'] = authorization
+            intent['command_evidence_directory'] = str(self.evidence)
+        save(marker, intent)
         self.run(args, env, timeout=60)
         save(self.release/('acknowledged-'+phase+'.json'), dict(state='ACKNOWLEDGED_NOT_VERIFIED', context_sha256=binding))
 
@@ -316,6 +480,21 @@ class Runner:
             self.run(['openssl','x509','-in',cert,'-noout','-checkhost','localhost'])
             self.run(['openssl','x509','-in',cert,'-noout','-checkend','0'])
             self.run(['openssl','verify','-CAfile',ca,cert])
+
+    def tls_approval(self, org):
+        self.tls_commit()
+        cert = self.net/f'organizations/peerOrganizations/org{org}.example.com/peers/peer1.org{org}.example.com/tls/server.crt'
+        self.run(['openssl','x509','-in',cert,'-noout','-checkhost',f'peer1.org{org}.example.com'])
+
+    def approval_environment(self, org):
+        env = self.env_for(org)
+        expected = dict(CORE_PEER_LOCALMSPID=f'Org{org}MSP',
+            CORE_PEER_MSPCONFIGPATH=str(self.net/f'organizations/peerOrganizations/org{org}.example.com/users/Admin@org{org}.example.com/msp'),
+            CORE_PEER_ADDRESS='localhost:'+('7061' if org == '1' else '9061'),
+            CORE_PEER_TLS_ROOTCERT_FILE=str(self.net/f'organizations/peerOrganizations/org{org}.example.com/peers/peer0.org{org}.example.com/tls/ca.crt'),
+            CORE_PEER_TLS_SERVERHOSTOVERRIDE=f'peer1.org{org}.example.com',CORE_PEER_TLS_ENABLED='true')
+        require(all(env.get(k) == v for k,v in expected.items()), 'Incorrect organization Admin/CP/TLS environment')
+        return env
 
 
 def definition_args():
@@ -359,7 +538,22 @@ def context(path, expected_sha, deployment_id):
     return m, baseline, network, release
 
 
-def execute(phase, runner, m, baseline, binding):
+def execute(phase, runner, m, baseline, binding, authorization_flags=None):
+    independent = phase.startswith('verify-approval-')
+    count = len(verification_files(runner.release,phase[-1])) if independent else 0
+    try:
+        return execute_phase(phase,runner,m,baseline,binding,authorization_flags)
+    except (Stop,SystemExit,OSError,ValueError,TypeError,KeyError,AttributeError):
+        # A failed independent verification must not leave an older MATCH as
+        # the latest observation. Never overwrite prior observations.
+        if independent and len(verification_files(runner.release,phase[-1])) == count:
+            save_approval_verification(runner,m,binding,phase[-1],
+                dict(state='UNKNOWN',reason='Independent verification failed'),None,False,
+                dict(transaction_validation='UNKNOWN',limitation='Verification unavailable'))
+        raise
+
+def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None):
+    authorization = desired_state_authorization(phase, m, binding, authorization_flags) if authorization_flags is not None else None
     require(runner.pins() == m['cp_certificate_sha256'], 'Local network certificate binding mismatch')
     require(runner.run([runner.peer,'lifecycle','chaincode','calculatepackageid',m['package_path']]).strip() == m['package_id'])
     actual = runner.capture(m['deployment_id'],baseline['property_id'],baseline['operation_id'])
@@ -376,11 +570,53 @@ def execute(phase, runner, m, baseline, binding):
         print('Installation command acknowledged; STOP. Inspect installation separately.'); return
     if phase.startswith('approve-'):
         require(runner.installed(org,m['package_id']) == inspect.MATCH, 'Package not installed')
+        if authorization is not None:
+            require(not upgraded, 'Desired-state approval requires committed TokANSH 1.0 sequence 1')
+            observation = runner.observe_desired_approval(org, m['package_id'])
+            save(runner.evidence/'prior-approval.json', observation)
+            if observation['state'] == 'MATCH':
+                print('MATCH: desired approval already observed; no submission and no attribution to a prior attempt.'); return
+            require(not (runner.release/('attempt-'+phase+'.json')).exists(),
+                    'Prior approval attempt exists; outcome UNKNOWN, no resubmission authorized')
+            require(not (runner.release/'attempt-commit.json').exists(),
+                    'Known commit attempt may be in flight; independent recovery review required')
+            other = '2' if org == '1' else '1'
+            if (runner.release/('attempt-approve-org'+other+'.json')).exists():
+                observed_other = runner.approval(other,2,'1.1',m['package_id'])
+                require_verification(runner,m,binding,other,observed_other,actual['organizations'][other]['channel'])
+            require(observation.get('repair_supported') is True,
+                    'Unsupported partial/unknown state; no desired-state mutation authorized')
+            print('Prior approval: '+observation['state']+'; explicit replacement/repair authorization applies. Absence is not established.')
+            runner.tls_approval(org)
+            final = runner.capture(m['deployment_id'],baseline['property_id'],baseline['operation_id'])
+            preserve(baseline,final,False)
+            require(final['organizations']['1']['channel'] == actual['organizations']['1']['channel'],
+                    'Unexpected channel change during approval inspection')
+            require(digest(m['package_path']) == m['package_sha256'], 'Reviewed package changed before approval')
+            # Revalidate the explicit acknowledgement immediately before saving
+            # its durable intent; a changed file is never silently authorized.
+            authorization = desired_state_authorization(phase, m, binding, authorization_flags)
+            env = runner.approval_environment(org)
+            args = [runner.peer,'lifecycle','chaincode','approveformyorg']+orderer_args(runner)+definition_args()
+            args += ['--package-id',m['package_id'],'--peerAddresses',env['CORE_PEER_ADDRESS'],
+                     '--tlsRootCertFiles',env['CORE_PEER_TLS_ROOTCERT_FILE'],'--waitForEvent','--waitForEventTimeout','30s']
+            runner.mutate_once(phase,args,env,binding,authorization)
+            # No post-approval query, preservation snapshot, readiness or other
+            # phase is chained from the mutation. Verification is separately authorized.
+            print('ACKNOWLEDGED_NOT_VERIFIED: one native approval command returned. STOP; independently authorize verify-approval-org'+org+'.'); return
         runner.approval(org,2,'1.1',m['package_id'])
-        print('MATCH: exact sequence-2 approval exists; no mutation. Fresh approval remains disabled.'); return
+        print('MATCH: exact sequence-2 approval exists; inspection only, no mutation.'); return
+    if phase.startswith('verify-approval-'):
+        require(not upgraded, 'Approval verification requires public definition 1.0 sequence 1')
+        require(runner.installed(org,m['package_id']) == inspect.MATCH, 'Package not installed')
+        runner.approval_environment(org)
+        verify_approval(runner,m,baseline,binding,org,actual)
+        return
     for member in ('1','2'):
         require(runner.installed(member,m['package_id']) == inspect.MATCH, 'Package not installed')
-        runner.approval(member,2,'1.1',m['package_id'])
+        observed = runner.approval(member,2,'1.1',m['package_id'])
+        if phase in ('readiness','commit'):
+            require_verification(runner,m,binding,member,observed,actual['organizations'][member]['channel'])
     if phase == 'verify':
         require(upgraded, 'Target definition not committed')
         print('PASS: both CPs/LPs agree; target definition, approvals, installations and preserved records verified.'); return
@@ -446,12 +682,24 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     require(len(argv) >= 2 and argv[0] in PHASES and argv[1] == '--authorize-'+argv[0],
             'Exactly one phase and its explicit organization-specific acknowledgement are required')
-    p = argparse.ArgumentParser(description=__doc__)
+    options = [token.split('=',1)[0] for token in argv[2:] if token.startswith('--')]
+    require(len(options) == len(set(options)), 'Duplicate CLI options are ambiguous')
+    p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument('phase',choices=PHASES)
     for name in ('context','context-sha256','deployment-id','network-root','release-directory','source-revision',
                  'property-id','operation-id','preservation-baseline','preservation-sha256'):
         p.add_argument('--'+name)
+    p.add_argument('--desired-state-authorization')
+    p.add_argument('--authorization-sha256')
+    p.add_argument('--acknowledge-replacement-and-repair')
+    p.add_argument('--acknowledge-maintenance-window')
     args = p.parse_args([argv[0]] + argv[2:])
+    authorization_flags = None
+    flags = (args.desired_state_authorization, args.authorization_sha256, args.acknowledge_replacement_and_repair,args.acknowledge_maintenance_window)
+    if any(value is not None for value in flags):
+        require(args.phase in ('approve-org1','approve-org2') and all(value is not None for value in flags),
+                'Approval requires its file, reviewed hash, replacement/repair and maintenance-window acknowledgements together')
+        authorization_flags = dict(path=flags[0],sha256=flags[1],acknowledgement=flags[2],maintenance_acknowledgement=flags[3])
     deployment_id = release_id(args.deployment_id)
     if args.phase in ('preflight','package'):
         require(not args.context and not args.context_sha256, 'Do not reuse an old deployment context')
@@ -486,7 +734,7 @@ def main(argv=None):
             save(release/'baseline.json',current)
             print('PASS: read-only preflight captured; review and freeze baseline hash before selecting a context.')
         else:
-            execute(args.phase,runner,m,baseline,args.context_sha256)
+            execute(args.phase,runner,m,baseline,args.context_sha256,authorization_flags)
     print('STOP. No following phase is implicitly authorized.')
 
 if __name__ == '__main__':
