@@ -492,3 +492,86 @@ AI coding agents must:
 ---
 
 **TokANSH — Unlocking Real Estate, One Ansh at a Time.**
+
+## Local WSL application lifecycle
+
+With DRUNIX already started separately, use these commands from this repository:
+
+```bash
+./scripts/tokansh-app.sh start
+./scripts/tokansh-app.sh status
+./scripts/tokansh-app.sh logs
+./scripts/tokansh-app.sh stop
+./scripts/tokansh-app.sh restart
+```
+
+The launcher manages only its own Gateway (:8001), FastAPI (:8000) and Vite
+(http://127.0.0.1:5173) processes. SQLite is a file, not a managed service.
+`status` reports process ownership/liveness; `logs` prints a bounded tail, not a
+continuous follower. It never manages DRUNIX or its recovery script.
+
+Prerequisites: existing backend `.venv`, installed frontend dependencies, Linux Node
+on PATH or in the existing NVM installation, Go and the pinned cached dependencies,
+and Linux/WSL pidfd support. Start builds `gateway/cmd/gateway` outside the repository
+with dependency downloads/toolchain downloads disabled; build timeout is 120 seconds.
+Missing dependencies require manual setup; nothing is installed automatically.
+
+Configuration is read from `~/.config/tokansh/local.env` as **dotenv**, not executable
+shell code. Use the existing backend/Gateway `.env.example` files as references.
+The file must be owned by the current user with mode 0600, its directory mode 0700.
+Do not regenerate/rotate secrets or copy signing keys. The profile must provide the
+existing Org1 User1 identity paths, MSP, peer endpoint, TLS CA/server name and two
+distinct existing 32-byte secrets encoded as 64 hex characters. Profile values
+supersede inherited shell values. Gateway bind, backend bind, channel, diagnostic
+chaincode and evaluation timeout must match the reviewed local defaults:
+127.0.0.1:8001, 127.0.0.1:8000, mychannel, basic and 5s. The backend's bridge URL is
+http://127.0.0.1:8001; typed registration still targets tokansh internally.
+
+The existing database must be `~/.local/share/tokansh/tokansh.db`, with owner-only
+file/directory permissions and migration revision `0002_registration`. An optional
+DATABASE_URL must select that same file using an absolute SQLite URL. The launcher
+checks the existing schema through mode=ro; it never initializes, resets, migrates
+or restores a database. It does not replace the full transaction preflight runbook.
+SQLite WAL sidecars remain subject to SQLite's normal read-only-open requirements.
+
+Frontend mode is preserved: absent VITE_API_MODE means Preview Mode. To select the
+existing Connected Mode explicitly, configure VITE_API_MODE=real and
+VITE_API_BASE_URL=http://127.0.0.1:8000. Only these two Vite settings and a minimal
+system environment reach the frontend child; signing paths/secrets are not passed.
+Never put secrets in frontend `.env` files or VITE_* values.
+
+Logs, the compiled Gateway and process records live in
+`~/.local/state/tokansh/app/` under an owner-only directory. Logs append across
+restarts and are not rotated automatically; inspect them privately and retain/delete
+only when no longer needed. Do not share raw logs without reviewing/redacting them.
+
+Repeated starts reuse matching managed processes. Occupied unmanaged ports fail
+without killing their owner. Boot ID, PID start time and executable
+identify owned processes; pidfds prevent signalling a reused PID. Stale records
+are discarded without signalling another process. Shutdown sends TERM, waits up to
+eight seconds, then uses KILL only for the still-matching process. Child workers rely
+on their application's graceful shutdown; this is not a general process-tree manager.
+A failed start rolls back only processes created by that invocation. It leaves
+previously managed processes and all data intact. Concurrent lifecycle commands fail
+with a lock message; they do not launch duplicates.
+
+Startup checks process health (up to 30 seconds per service, plus bounded HTTP calls)
+and performs one authenticated GET /v1/tokansh/contract-info evaluation. Wrong metadata,
+authentication failure, timeout or unavailable DRUNIX fails startup honestly; there
+is no ledger fallback or automatic evaluation retry. This read proves connectivity,
+not transaction/financial readiness: `/ready` remains unavailable. No prepare,
+submit, commit-status, lifecycle deployment or blockchain-writing request is made.
+The launcher does not authorize Connected Mode financial workflows.
+
+Before stop/restart, finish any operator transaction or preserve its reconciliation
+state. Interrupting an in-flight operation can leave an ambiguous outcome; reconcile
+with the existing runbook and never blindly resubmit. Only start/stop the application
+through this launcher for ownership tracking; it will not adopt another developer's
+already-running services.
+
+Offline launcher tests (temporary processes/configuration/SQLite fixtures only):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 backend/.venv/bin/python -B -m unittest discover -s scripts -p 'test_tokansh_app.py'
+bash -n scripts/tokansh-app.sh
+```
