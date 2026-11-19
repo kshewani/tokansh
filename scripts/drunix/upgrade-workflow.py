@@ -743,6 +743,17 @@ def main(argv=None):
             require(digest(initial) == sha(args.preservation_sha256), 'Accepted preservation baseline hash mismatch')
             old = checks.load(initial)
             current = snapshot(runner.capture(deployment_id,args.property_id,args.operation_id),deployment_id)
+            recovered = None
+            if isinstance(old,dict) and old.get('kind') == 'NEWLY_OBSERVED_M3_BASELINE':
+                recovered = module('recover-m3-baseline').validate_accepted(initial,args.preservation_sha256)
+                require(recovered['cp_certificate_sha256'] == current['cp_certificate_sha256'],
+                        'Recovered baseline environment mismatch')
+                preserve(recovered,current,False)
+                # Adapt only after acceptance/full M3 preservation validation;
+                # retain the existing historical basic/channel checks below.
+                old = {f'Org{org}_{field}':dict(observed=value) for org,row in recovered['organizations'].items()
+                       for field,value in (('channel',row['channel']),('basic',row['basic']),
+                                           ('definitions',dict(chaincode_definitions=list(row['definitions'].values()))))}
             for org in ('1','2'):
                 previous = checks.named_definition(old['Org'+org+'_definitions']['observed'],'basic')
                 require({**previous,'init_required':previous.get('init_required',False)} == current['organizations'][org]['definitions']['basic'])
@@ -750,6 +761,9 @@ def main(argv=None):
                 start,end = channel(old['Org'+org+'_channel']['observed']),current['organizations'][org]['channel']
                 require(end['height'] >= start['height'])
                 if end['height'] == start['height']: require(end == start)
+            if recovered is not None:
+                save(release/'baseline-provenance.json',dict(kind='NEWLY_OBSERVED_M3_BASELINE',
+                     accepted_baseline_path=str(initial),accepted_baseline_sha256=args.preservation_sha256))
             save(release/'baseline.json',current)
             print('PASS: read-only preflight captured; review and freeze baseline hash before selecting a context.')
         else:
