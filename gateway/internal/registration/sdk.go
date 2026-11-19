@@ -1,6 +1,7 @@
 package registration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
@@ -85,8 +86,15 @@ func (s *SDK) Submit(ctx context.Context, a Artifact) error {
 func (s *SDK) Status(ctx context.Context, a Artifact) (Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Recovery must use the same configured identity as the persisted creator.
+	// Gateway.Identity returns the identity paired with the existing signer.
+	id := s.gateway.Identity()
+	creator, e := proto.Marshal(&msp.SerializedIdentity{Mspid: id.MspID(), IdBytes: id.Credentials()})
+	if e != nil || !bytes.Equal(creator, s.creator) || !bytes.Equal(creator, a.Creator) {
+		return Status{}, invalid
+	}
 	// Works even if Submit returned no Commit. No submission or endorsement here.
-	request, e := proto.Marshal(&gp.CommitStatusRequest{ChannelId: a.Channel, TransactionId: a.TransactionID, Identity: a.Creator})
+	request, e := proto.Marshal(&gp.CommitStatusRequest{ChannelId: a.Channel, TransactionId: a.TransactionID, Identity: creator})
 	if e != nil {
 		return Status{}, invalid
 	}
@@ -94,6 +102,8 @@ func (s *SDK) Status(ctx context.Context, a Artifact) (Status, error) {
 	if e != nil {
 		return Status{}, invalid
 	}
+	// SDK v1.10.0 NewCommit retains the configured signing identity;
+	// StatusWithContext signs the unsigned request before sending the RPC.
 	commit, e := s.gateway.NewCommit(recovery)
 	if e != nil {
 		return Status{}, invalid
