@@ -676,8 +676,8 @@ def prepare_package(runner, deployment_id, revision):
     require(digest(staged/'go.mod') == hashes['go.mod'] and digest(staged/'go.sum') == hashes['go.sum'])
     env['GOFLAGS'] = '-mod=vendor'
     for operation, args, timeout in (
-        ('Go unit tests',['go','test','-count=1','-timeout=60s','./...'],180),
-        # The Go test deadline does not bound race compilation/linking.
+        # The Go test deadline does not bound compilation/linking.
+        ('Go unit tests',['go','test','-count=1','-timeout=60s','./...'],600),
         ('Go race tests',['go','test','-race','-count=1','-timeout=60s','./...'],600),
         ('Go vet',['go','vet','./...'],180),
         ('Go build',['go','build','-o',str(runner.release/'validated-chaincode'),'.'],180)):

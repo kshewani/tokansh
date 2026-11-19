@@ -805,8 +805,11 @@ class PackagingTests(unittest.TestCase):
                 if variant=='module changed':(Path(cwd)/'go.mod').write_text('changed')
                 return ''
             if args[0]=='go':
-                self.assertEqual(timeout,600 if '-race' in args else 180)
+                self.assertEqual(timeout,600 if 'test' in args else 180)
                 if 'test' in args:self.assertIn('-timeout=60s',args)
+                if 'test' in args and '-race' not in args:
+                    self.assertEqual(len(calls),6)  # Evidence command 006.
+                    if variant=='unit timeout':raise u.CommandTimeout('private infrastructure detail')
                 if '-race' in args:
                     self.assertEqual(len(calls),7)  # Evidence command 007.
                     if variant=='race timeout':raise u.CommandTimeout('private infrastructure detail')
@@ -820,14 +823,14 @@ class PackagingTests(unittest.TestCase):
         with patch.object(u,'REPO',repo),patch.object(runner,'run',side_effect=fake),patch.object(u.subprocess,'run',side_effect=AssertionError('no real subprocess')):
             if variant:
                 with self.assertRaises(u.Stop) as failure:u.prepare_package(runner,'offline-package-001','a'*40)
-                if variant.startswith('race '):
+                if variant.startswith(('race ','unit ')):
                     message=str(failure.exception)
-                    self.assertIn('Go race tests',message)
+                    self.assertIn('Go unit tests' if variant.startswith('unit ') else 'Go race tests',message)
                     self.assertIn('deadline=600s',message)
-                    self.assertIn('command=007',message)
+                    self.assertIn('command=006' if variant.startswith('unit ') else 'command=007',message)
                     self.assertIn(str(runner.evidence),message)
                     self.assertNotIn('private infrastructure detail',message)
-                    self.assertIn('timed out' if variant=='race timeout' else 'failed or unavailable',message)
+                    self.assertIn('timed out' if variant.endswith(' timeout') else 'failed or unavailable',message)
                     self.assertFalse((runner.release/'package-identity.json').exists())
             else:
                 u.prepare_package(runner,'offline-package-001','a'*40)
@@ -856,6 +859,11 @@ class PackagingTests(unittest.TestCase):
                 calls=self.prepare(variant)
                 self.assertEqual(len(calls),7)
                 self.assertIn('-race',calls[-1][0])
+
+    def test_unit_timeout_stops_once_with_sanitized_diagnostics(self):
+        calls=self.prepare('unit timeout')
+        self.assertEqual(len(calls),6)
+        self.assertEqual(calls[-1][0],['go','test','-count=1','-timeout=60s','./...'])
 
 
 class ShellBoundaryTests(unittest.TestCase):
