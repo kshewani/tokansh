@@ -319,7 +319,12 @@ class UpgradeTests(unittest.TestCase):
     def test_cli_timeout_errors_are_private_and_have_no_retry(self):
         # Exercise the actual subprocess boundary with a mock, not a live command.
         with patch.object(u.subprocess,'run',side_effect=subprocess.TimeoutExpired('offline-peer',1)) as run:
-            with self.assertRaisesRegex(u.Stop,'UNKNOWN'):u.Runner.run(self.runner,['offline-peer'],timeout=1)
+            with self.assertRaisesRegex(u.CommandTimeout,'UNKNOWN'):u.Runner.run(self.runner,['offline-peer'],timeout=1)
+            self.assertEqual(run.call_count,1)
+        with patch.object(u.subprocess,'run',side_effect=OSError('private launch detail')) as run:
+            with self.assertRaisesRegex(u.Stop,'command unavailable') as failure:u.Runner.run(self.runner,['offline-peer'])
+            self.assertNotIsInstance(failure.exception,u.CommandTimeout)
+            self.assertNotIn('private launch detail',str(failure.exception))
             self.assertEqual(run.call_count,1)
         with patch.object(u.subprocess,'run',return_value=subprocess.CompletedProcess([],9)) as run:
             with self.assertRaisesRegex(u.Stop,'UNKNOWN'):u.Runner.run(self.runner,['offline-peer'])
@@ -790,6 +795,7 @@ class PackagingTests(unittest.TestCase):
         runner=u.Runner(root/'network',release)
         calls=[]
         def fake(args,env=None,cwd=None,timeout=30):
+            runner.count += 1
             args=[str(v) for v in args];calls.append((args,env,cwd))
             if args[:2]==['git','branch']:return 'feat/frontend-connected-mode'
             if args[:2]==['git','rev-parse']:return 'a'*40
@@ -798,7 +804,14 @@ class PackagingTests(unittest.TestCase):
             if args[:3]==['go','mod','vendor']:
                 if variant=='module changed':(Path(cwd)/'go.mod').write_text('changed')
                 return ''
-            if args[0]=='go':return ''
+            if args[0]=='go':
+                self.assertEqual(timeout,600 if '-race' in args else 180)
+                if 'test' in args:self.assertIn('-timeout=60s',args)
+                if '-race' in args:
+                    self.assertEqual(len(calls),7)  # Evidence command 007.
+                    if variant=='race timeout':raise u.CommandTimeout('private infrastructure detail')
+                    if variant=='race unavailable':raise u.Stop('private infrastructure detail')
+                return ''
             if 'calculatepackageid' in args:return 'tokansh_1.1:'+u.digest(Path(args[-1]))
             if 'package' in args:
                 path=Path(args[4]);path.write_bytes(b'package'+(b'changed' if variant=='not reproducible' and path.name.startswith('reproducibility') else b''))
@@ -806,7 +819,16 @@ class PackagingTests(unittest.TestCase):
             raise AssertionError('unreviewed packaging command')
         with patch.object(u,'REPO',repo),patch.object(runner,'run',side_effect=fake),patch.object(u.subprocess,'run',side_effect=AssertionError('no real subprocess')):
             if variant:
-                with self.assertRaises(u.Stop):u.prepare_package(runner,'offline-package-001','a'*40)
+                with self.assertRaises(u.Stop) as failure:u.prepare_package(runner,'offline-package-001','a'*40)
+                if variant.startswith('race '):
+                    message=str(failure.exception)
+                    self.assertIn('Go race tests',message)
+                    self.assertIn('deadline=600s',message)
+                    self.assertIn('command=007',message)
+                    self.assertIn(str(runner.evidence),message)
+                    self.assertNotIn('private infrastructure detail',message)
+                    self.assertIn('timed out' if variant=='race timeout' else 'failed or unavailable',message)
+                    self.assertFalse((runner.release/'package-identity.json').exists())
             else:
                 u.prepare_package(runner,'offline-package-001','a'*40)
                 identity=u.checks.load(release/'package-identity.json')
@@ -827,6 +849,13 @@ class PackagingTests(unittest.TestCase):
     def test_dirty_source_changed_module_and_nonreproducible_archive_stop(self):
         for variant in ('dirty','module changed','not reproducible'):
             with self.subTest(variant=variant):self.prepare(variant)
+
+    def test_race_timeout_or_launch_failure_stops_once_with_sanitized_diagnostics(self):
+        for variant in ('race timeout','race unavailable'):
+            with self.subTest(variant=variant):
+                calls=self.prepare(variant)
+                self.assertEqual(len(calls),7)
+                self.assertIn('-race',calls[-1][0])
 
 
 class ShellBoundaryTests(unittest.TestCase):

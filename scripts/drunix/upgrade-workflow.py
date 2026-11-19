@@ -45,6 +45,9 @@ MAINTENANCE_ACK = ('I confirm an operator-controlled maintenance window on mycha
 class Stop(Exception):
     pass
 
+class CommandTimeout(Stop):
+    pass
+
 class CLIRejected(Stop):
     """Private diagnostics; str(error) is always sanitized, including at top level."""
     def __init__(self, returncode, stdout, stderr):
@@ -368,8 +371,10 @@ class Runner:
             try:
                 result = subprocess.run([str(a) for a in args], env=env or self.env, cwd=cwd,
                                         stdout=out, stderr=err, timeout=timeout, check=False)
-            except (OSError, subprocess.TimeoutExpired):
-                raise Stop('UNKNOWN: command unavailable or timed out; inspect private evidence, no retry') from None
+            except subprocess.TimeoutExpired:
+                raise CommandTimeout('UNKNOWN: command timed out; inspect private evidence, no retry') from None
+            except OSError:
+                raise Stop('UNKNOWN: command unavailable; inspect private evidence, no retry') from None
         stdout = (self.evidence/f'{self.count:03}.stdout').read_text()
         if result.returncode != 0:
             raise CLIRejected(result.returncode, stdout, (self.evidence/f'{self.count:03}.stderr').read_text())
@@ -640,13 +645,22 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
 
 
 def prepare_package(runner, deployment_id, revision):
-    require(runner.run(['git','branch','--show-current'],cwd=REPO).strip() == 'feat/frontend-connected-mode')
-    require(runner.run(['git','rev-parse','HEAD'],cwd=REPO).strip() == revision and re.fullmatch('[0-9a-f]{40}',revision))
-    require(not runner.run(['git','status','--porcelain'],cwd=REPO).strip(), 'Reviewed source must be committed and clean before packaging')
+    def run(operation, args, env=None, cwd=None, timeout=30):
+        try:
+            return runner.run(args, env, cwd, timeout)
+        except Stop as error:
+            reason = 'timed out' if isinstance(error, CommandTimeout) else 'failed or unavailable'
+            # Labels are fixed locally; never echo arguments, environment or raw CLI errors.
+            raise Stop(f'Offline packaging: {operation} {reason}; subprocess deadline={timeout}s; '
+                       f'command={runner.count:03}; private evidence={runner.evidence}; STOP, no retry') from None
+
+    require(run('branch inspection',['git','branch','--show-current'],cwd=REPO).strip() == 'feat/frontend-connected-mode')
+    require(run('revision inspection',['git','rev-parse','HEAD'],cwd=REPO).strip() == revision and re.fullmatch('[0-9a-f]{40}',revision))
+    require(not run('working-tree inspection',['git','status','--porcelain'],cwd=REPO).strip(), 'Reviewed source must be committed and clean before packaging')
     identity_path = runner.release/'package-identity.json'
     require(not any((runner.release/name).exists() for name in ('package-identity.json','tokansh_1.1.tar.gz','reproducibility-check.tar.gz','validated-chaincode','staged-chaincode')), 'Do not overwrite a release')
     root = REPO/'chaincode/tokansh'
-    paths = runner.run(['git','ls-files','chaincode/tokansh'],cwd=REPO).splitlines()
+    paths = run('source inventory',['git','ls-files','chaincode/tokansh'],cwd=REPO).splitlines()
     staged = runner.release/'staged-chaincode'; staged.mkdir(mode=0o700)
     hashes = {}
     for name in paths:
@@ -658,20 +672,25 @@ def prepare_package(runner, deployment_id, revision):
         shutil.copyfile(source,target); hashes[str(relative)] = digest(source)
     require('contract/issuance.go' in hashes, 'Reviewed M4 source missing')
     env = dict(runner.env,GOTOOLCHAIN='local',GOPROXY='off',GOSUMDB='off',GOFLAGS='-mod=readonly')
-    runner.run(['go','mod','vendor'],env,staged,120)
+    run('Go vendoring',['go','mod','vendor'],env,staged,120)
     require(digest(staged/'go.mod') == hashes['go.mod'] and digest(staged/'go.sum') == hashes['go.sum'])
     env['GOFLAGS'] = '-mod=vendor'
-    for args in (['go','test','-count=1','-timeout=60s','./...'],['go','test','-race','-count=1','-timeout=60s','./...'],['go','vet','./...'],['go','build','-o',str(runner.release/'validated-chaincode'),'.']):
-        runner.run(args,env,staged,180)
+    for operation, args, timeout in (
+        ('Go unit tests',['go','test','-count=1','-timeout=60s','./...'],180),
+        # The Go test deadline does not bound race compilation/linking.
+        ('Go race tests',['go','test','-race','-count=1','-timeout=60s','./...'],600),
+        ('Go vet',['go','vet','./...'],180),
+        ('Go build',['go','build','-o',str(runner.release/'validated-chaincode'),'.'],180)):
+        run(operation,args,env,staged,timeout)
     package = runner.release/'tokansh_1.1.tar.gz'
     repeat = runner.release/'reproducibility-check.tar.gz'
     for destination in (package,repeat):
-        runner.run([runner.peer,'lifecycle','chaincode','package',destination,'--path',staged,'--lang','golang','--label','tokansh_1.1'])
+        run('chaincode package',[runner.peer,'lifecycle','chaincode','package',destination,'--path',staged,'--lang','golang','--label','tokansh_1.1'])
     require(digest(package) == digest(repeat), 'Packaging was not reproducible')
-    package_id = runner.run([runner.peer,'lifecycle','chaincode','calculatepackageid',package]).strip()
+    package_id = run('package identity',[runner.peer,'lifecycle','chaincode','calculatepackageid',package]).strip()
     require(package_id == 'tokansh_1.1:'+digest(package))
     require(all(digest(staged/name) == value for name,value in hashes.items()), 'Staged reviewed source changed')
-    require(not runner.run(['git','status','--porcelain'],cwd=REPO).strip(), 'Source repository changed during packaging')
+    require(not run('final working-tree inspection',['git','status','--porcelain'],cwd=REPO).strip(), 'Source repository changed during packaging')
     save(identity_path,dict(schema_version=1,deployment_id=deployment_id,source_revision=revision,source_files=hashes,
         package_sha256=digest(package),package_id=package_id,package_size_bytes=package.stat().st_size,label='tokansh_1.1'))
     print('PASS: staged tests/build and reproducible package. Review package-identity.json; no installation performed.')
