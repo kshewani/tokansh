@@ -441,3 +441,17 @@ This register must be read together with:
 
 When documents appear to conflict, stop and report the conflict rather than
 silently choosing an interpretation.
+
+### M5 local-MVP scope clarification — simulation reservations, not pledges
+
+For the expressly scoped M5 hackathon financing experience, reservations,
+lender decisions, disbursement and repayment are **off-chain simulations** stored
+in the application database. They do not implement ADR-013's enforceable on-chain
+pledge/release controls. Reserved units remain transferable on DRUNIX; actual
+ownership and M4 transferable balances stay unchanged. REIT units are excluded.
+Fresh ledger balances cap approval, and serialized application-state checks prevent
+overlapping simulation reservations, but cannot prevent subsequent ledger transfers.
+UI/API labels must explicitly disclose this boundary. Actual on-chain restrictions
+remain unimplemented and must not be claimed from this milestone. This limited
+scope does not approve real lending, legal collateral enforceability or production
+identity/credit controls.

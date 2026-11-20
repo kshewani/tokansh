@@ -84,3 +84,21 @@ test('connected marketplace renders missing balances without scenario holdings o
  assert.doesNotMatch(html,/500 ANSH|100,000 ANSH|COMMITTED_VALID|Bearer|TOKANSH_TRANSFER_SECRET/);
  cache.clear();
 });
+
+const {ReservationNotice,LoanDetails}=await import('../src/pages/Financing.tsx');
+test('financing notice explicitly separates reservation and transferable ownership',()=>{
+ const html=renderToStaticMarkup(h(ReservationNotice));
+ assert.match(html,/no blockchain lock or legal pledge/);assert.match(html,/remain transferable on DRUNIX/);
+ assert.match(html,/never your displayed transferable balance/);
+});
+test('financing detail shows simulated loan amounts, dated lifecycle and the correct repayment/release action',()=>{
+ const base={id:'70000000-0000-4000-8000-000000000001',quantity:1,state:'DISBURSED',ltv_percent:60,
+  reservation_active:true,collateral_value_minor:'1000000',principal_minor:'600000',interest_minor:'60000',
+  repayment_minor:'660000',outstanding_principal_minor:'600000',amount_due_minor:'660000',assessment:null,
+  timeline:[{state:'DISBURSED',timestamp:'2026-11-20T10:00:00Z',actor_role:'INVESTOR',simulated:true}]};
+ const html=renderToStaticMarkup(h(LoanDetails,{loan:base,onAction:()=>{}}));
+ assert.match(html,/SIMULATED/);assert.match(html,/₹6,600.00/);assert.match(html,/Simulate full repayment/);assert.match(html,/dateTime="2026-11-20T10:00:00Z"/i);
+ assert.doesNotMatch(html,/Release simulation reservation/);
+ const repaid=renderToStaticMarkup(h(LoanDetails,{loan:{...base,state:'REPAID',outstanding_principal_minor:'0',amount_due_minor:'0'},onAction:()=>{}}));
+ assert.match(repaid,/Release simulation reservation/);assert.doesNotMatch(repaid,/Simulate full repayment/);
+});

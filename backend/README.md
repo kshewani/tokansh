@@ -212,3 +212,61 @@ balances afresh for portfolios. Disable repeated clicks and do not retry financi
 POSTs automatically. No React screen is enabled by this change. The running backend
 has not been restarted; deployment/configuration needs a separately authorized
 checkpoint. No live transfers were executed during implementation.
+
+## M5 — ANSH-backed financing simulation
+
+This milestone deliberately implements **application-state reservations only**.
+There is no blockchain pledge/lock, legal security interest, lender integration,
+real disbursement or repayment. Reserved units remain transferable on DRUNIX.
+M4 transfer/balance calculations are unchanged. REIT units are not eligible.
+
+All routes use existing `X-Demo-Role` identities (`INVESTOR` / `LENDER`), existing
+server-side Gateway configuration, and the standard `{data,meta}` envelope:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/v1/financing/eligibility/{property_id}` | Investor's fresh DRUNIX balance, simulated reservations and simulation-only eligible units |
+| GET | `/api/v1/financing/applications` | Investor's own saved simulations; lender sees all |
+| POST | `/api/v1/financing/applications` | Investor applies; requires `Idempotency-Key` |
+| POST | `/api/v1/financing/applications/{id}/{action}` | `assess`, `approve`, `disburse`, `repay`, `release` |
+
+Example application: `property_id` is the existing registered UUID, `asset_class`
+is `ANSH`, `quantity: 1`, `unit_value_minor: "1000000"` (illustrative INR 10,000),
+`ltv_percent: 60`, `annual_rate_bps: 1000` (illustrative 10%), `term_months: 12`.
+Advance rate is configurable from 20–75%; rate from 1–3000 basis points, term 1–36
+months. The UI exposes a smaller set of demo terms. REIT/unknown fields fail validation.
+
+Workflow: APPLIED → ASSESSED → APPROVED → DISBURSED → REPAID → RELEASED, with
+REJECTED when fresh holdings/reservations do not support assessment/approval.
+Every stage records a timestamp, acting demo role and `simulated: true`.
+The investor may explicitly trigger simulated lender steps for a one-person demo;
+the Lender console may also assess/approve/disburse. Only the borrower confirms
+repayment/release. These buttons do not represent independent lender authorization.
+
+Persistence reuses `application_operations`: `FIN_*` workflow statuses and typed
+`SIMULATED_FINANCING` JSON records contain terms, quote, assessment, reservation,
+amounts due and timeline. No migration or new database is needed. Preserve the
+existing persistent SQLite file. Application IDs are off-chain UUIDs, never ledger
+transaction IDs. Same actor/key/body returns the existing application; conflicts
+fail. Repeating a completed stage has no extra effect. No automatic mutation retries.
+
+Approval and assessment read holdings afresh through the existing **read-only**
+Gateway balance client. A short `BEGIN IMMEDIATE` transaction serializes reservation
+checks/updates across applications. Network I/O does not hold this write lock.
+APPROVED/DISBURSED/REPAID reserve units within this simulation; full repayment leaves
+the reservation until an explicit release. Concurrent approvals cannot reserve the
+same units twice in the application database. No blockchain ownership is written
+or reduced, and these reservations do not alter M4 transferable balances.
+If a later transfer reduces holdings, eligibility flags a reservation shortfall;
+simulated disbursement is blocked when fresh holdings no longer cover it. This is
+not an atomic on-chain guarantee: holdings can change after a balance observation.
+
+Money uses integer paise, serialized as strings. Illustrative collateral value is
+quantity × configured unit value; principal is floor(collateral × LTV / 100).
+Simple fixed-term interest is rounded half-up to a paise:
+`principal × annual_rate_bps × term_months / 120000`. No daily accrual, compounding,
+fees or partial repayments are modelled. Repayment settles the entire principal
+plus the quoted fixed-term interest; all money movements remain simulated.
+
+Focused tests use only temporary SQLite and mocked balance reads. No live finance
+simulation, blockchain mutation or service restart was performed during implementation.

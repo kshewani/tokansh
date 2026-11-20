@@ -104,3 +104,43 @@ are explicitly illustrative/simulated. No fake price, valuation, rental entitlem
 or transaction history is presented as ledger data. Preview Mode keeps all existing
 scenario features unchanged. No new dependencies, application restarts, live writes
 or deployment are part of this frontend implementation.
+
+## M5 — financing studio and portfolio summary
+
+In Connected Mode, choose the existing Investor account and open **Collateral
+Management** (also reachable from the portfolio's Financing Studio action).
+Only the existing registered ANSH asset is selectable; REITs remain a separate,
+ineligible asset class. Ownership is fetched from DRUNIX through FastAPI; unavailable
+reads never fall back to preview quantities. Current ownership is not assumed to
+match a historical demo balance.
+
+Choose a quantity within simulation eligibility, an illustrative per-unit INR
+valuation, advance rate/LTV, annual simple rate and fixed term. Estimates use BigInt
+paise and match the backend's integer rounding; no floating-point money arithmetic.
+Review/apply, then explicitly simulate assessment, approval/reservation,
+disbursement, full repayment and release. Each action has a review dialog. The
+existing Lender role can also inspect/assess/approve/disburse, with investor-only
+repayment/release. Loan state and timestamped lifecycle come from saved backend
+records, not frontend scenario phases. Approvals recheck live holdings server-side.
+
+The portfolio/dashboard shows active simulation reservations and principal
+outstanding, separately from DRUNIX holdings and external REIT illustrations.
+TanStack Query shares state across routes and refreshes financing observations
+after simulated actions and confirmed M4 transfers. Persistent state lives in the
+existing backend SQLite `application_operations`, not browser storage; the browser
+keeps only an in-memory request key for application idempotency. After an uncertain
+API response, refresh saved applications before creating another request. This is
+a single-operator demo, not a credit platform or global exactly-once guarantee.
+
+Every financing panel states: **no blockchain lock or legal pledge**. Reserved ANSH
+remain transferable on DRUNIX until actual on-chain controls exist. Simulation
+eligibility subtracts active reservations only to prevent duplicate simulation
+allocations; M4 transfer quantities and actual ledger ownership are never reduced.
+A holdings shortfall is flagged rather than inventing a protected balance.
+Valuations, rates, risk bands, eligibility decisions and funds are illustrative.
+Preview Mode keeps its existing static scenario screens and notices.
+
+No new credentials, chaincode, Gateway operations, migrations or dependencies are
+introduced. The new backend routes must be loaded in a separately authorized
+runtime deployment; this implementation does not restart processes or execute
+live financing/ANSH operations.

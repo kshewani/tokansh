@@ -3,6 +3,7 @@ import {Link} from 'react-router-dom';
 import {ArrowRight,ArrowRightLeft,CheckCircle2,Clock3,Landmark,RefreshCw,ShieldCheck,Wallet} from 'lucide-react';
 import {useApp} from '../app/context';
 import {useInvestor} from '../app/investor';
+import {FinancingSummary} from './Financing';
 import {displayState,investorDemo,terminal} from '../api/transfers';
 import type {TransferCommand} from '../api/transfers';
 import {errorFeedback} from '../api/client';
@@ -89,6 +90,7 @@ export function ConnectedPortfolio({dashboard=false}:{dashboard?:boolean}){
   <LedgerBalances/>
   <div className="mt-5 grid items-start gap-5 xl:grid-cols-2"><TransferForm kind="TRANSFER"/><Card title="ANSH position" description="Connected property · balances evaluated through FastAPI"><div className="flex items-center gap-3 rounded-lg bg-blue-50 p-4"><ShieldCheck className="text-[#1769AA]"/><div><p className="font-bold text-[#102B4E]">TechPark One</p><p className="mt-1 text-xs text-slate-600">Economic interests · holder {investorDemo.investor.slice(-4)}</p></div></div><p className="mt-5 text-sm leading-6 text-slate-600">Ownership changes are displayed after confirmed commitment and a fresh balance read. Cached transaction evidence is kept separate from current holdings.</p><div className="mt-5 flex items-center gap-2 text-xs font-semibold text-[#1769AA]"><ArrowRightLeft size={16}/> Acquire 4, then transfer 1 in the supervised demo</div><p className="mt-2 text-xs text-slate-500">These are suggested quantities, not assumed ledger outcomes.</p></Card></div>
   <TransferProgress/>
+  <FinancingSummary/>
   <div className="mt-5 grid gap-5 xl:grid-cols-2"><Card title="Simulated investment values" description="Illustrative analytics · not connected to DRUNIX balances"><div className="flex items-center gap-3 text-[#1769AA]"><Landmark size={20}/><strong className="text-sm">Separate from your ANSH holdings</strong></div><dl className="mt-4"><DataRow label="Scenario property valuation" value={inr('1000000000',true)}/><DataRow label="Scenario price / ANSH" value={inr('10000')}/><DataRow label="Live investment valuation" value="Unavailable"/><DataRow label="Rental entitlement" value="Not integrated"/></dl><p className="mt-3 text-xs text-slate-500">These synthetic values do not price your ledger position or establish distribution eligibility. Full scenario analytics remain available in Preview Mode.</p></Card><Card title="External REIT holdings" description="Simulated external-data domain · separate from ANSH"><div className="rounded-lg border border-slate-200 p-4"><p className="text-sm font-bold text-[#102B4E]">Illustrative Indian REIT</p><p className="mt-2 text-xs text-slate-500">No connected custodian, live valuation or blockchain custody. Not eligible for ANSH collateral.</p><span className="mt-3 inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">SIMULATED</span></div></Card></div>
  </>;
 }

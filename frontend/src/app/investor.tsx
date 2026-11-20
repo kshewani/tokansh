@@ -23,6 +23,7 @@ function useInvestorSession(role:Role,enabled:boolean){
   const result=snapshot.attempt?.result;
   if(enabled&&result?.state==='COMMITTED_VALID'&&refreshed.current!==result.operation_id){
    refreshed.current=result.operation_id;void cache.invalidateQueries({queryKey:['ansh-balances']});
+   void cache.invalidateQueries({queryKey:['financing']});
   }
  },[enabled,snapshot.attempt?.result,cache]);
  return {flow,snapshot,balances,live:balances.isSuccess&&!balances.isFetching?balances.data:null};

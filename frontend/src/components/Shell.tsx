@@ -48,7 +48,7 @@ export function Shell(){
     })}
    </div>
    <div className="mt-auto border-t border-white/10 p-3">
-    {!collapsed&&<div className="mb-3 rounded-lg border border-blue-200/20 bg-white/5 p-3"><div className="flex items-center gap-2 text-xs font-bold text-blue-100"><ShieldAlert size={15}/> {mode==='preview'?'Preview Mode':'Connected Mode'}</div><p className="mt-1 text-[11px] leading-5 text-blue-100/70">{mode==='preview'?'Backend and DRUNIX evidence unavailable. No real ANSH state changes.':'Marketplace and portfolio connected. Other workflows remain unavailable.'}</p></div>}
+    {!collapsed&&<div className="mb-3 rounded-lg border border-blue-200/20 bg-white/5 p-3"><div className="flex items-center gap-2 text-xs font-bold text-blue-100"><ShieldAlert size={15}/> {mode==='preview'?'Preview Mode':'Connected Mode'}</div><p className="mt-1 text-[11px] leading-5 text-blue-100/70">{mode==='preview'?'Backend and DRUNIX evidence unavailable. No real ANSH state changes.':'DRUNIX marketplace and portfolio. Financing is an application-state simulation.'}</p></div>}
     <button className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-blue-100 hover:bg-white/10" onClick={handleLogout} title="Log out or choose another demo account"><LogOut size={17}/>{!collapsed&&'Logout / Switch account'}</button>
     <button className="hidden w-full items-center justify-center rounded-lg py-2 text-blue-100 hover:bg-white/10 lg:flex" onClick={()=>setCollapsed(x=>!x)} aria-label={collapsed?'Expand sidebar':'Collapse sidebar'}><ChevronDown className={collapsed?'rotate-90':'-rotate-90'} size={16}/></button>
    </div>

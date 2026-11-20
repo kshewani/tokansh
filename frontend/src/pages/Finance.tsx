@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {AlertTriangle,Landmark,LockKeyhole,ShieldCheck,Wallet} from 'lucide-react';
-import {usePreview} from '../app/context';
+import {useApp,usePreview} from '../app/context';
+import {FinancingWorkspace} from './Financing';
 import {route} from '../api/contracts';
 import type {NewPledge} from '../api/contracts';
 import {phaseIndex,inr,integer,sample} from '../demo/scenario';
@@ -9,7 +10,8 @@ import {Card,Metric,SectionHeading,EmptyState} from '../components/ui/card';
 import {ReviewDialog} from '../components/ui/dialog';
 import {Field,DataRow} from '../components/ui/form';
 import {Status} from '../components/ui/status';
-export function Collateral(){
+export function Collateral(){const {mode}=useApp();return mode==='real'?<FinancingWorkspace/>:<PreviewCollateral/>;}
+function PreviewCollateral(){
  const {phase,holding,submit,submitting,notify}=usePreview();
  const [quantity,setQuantity]=useState(200),[transfer,setTransfer]=useState(350),[open,setOpen]=useState(false);
  const valid=Number.isSafeInteger(quantity)&&quantity>0&&quantity<=holding.available;
@@ -39,7 +41,8 @@ export function Collateral(){
  <ReviewDialog open={open} onOpenChange={setOpen} title="Review collateral pledge" description="The frontend cannot lock units. Only a confirmed DRUNIX pledge transaction can restrict transfers." onConfirm={async()=>{await submit(route.pledges,payload);setOpen(false);}} busy={submitting} confirmLabel="Submit pledge request"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Pledged units requested" value={integer(quantity)}/><DataRow label="Indicative collateral value" value={inr(quantity*10000)}/><DataRow label="Indicative loan value" value={inr(quantity*10000*.6)}/><DataRow label="Status after submission" value="Pending backend / DRUNIX verification"/></dl></ReviewDialog>
  </>;
 }
-export function Lending(){
+export function Lending(){const {mode}=useApp();return mode==='real'?<FinancingWorkspace/>:<PreviewLending/>;}
+function PreviewLending(){
  const {role,phase,holding,submit,submitting,notify}=usePreview();
  const [open,setOpen]=useState<'apply'|'assess'|'approve'|'reject'|'disburse'|'repay'|'release'|null>(null);
  const isLender=role==='LENDER',eligible=phaseIndex(phase)>=4;
