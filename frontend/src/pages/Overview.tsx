@@ -1,3 +1,4 @@
+import {ReitHoldingsCard} from '../components/ReitHoldings';
 import {BarChart3,Building2,CheckCircle2,ChevronRight,FileClock,Landmark,PackageCheck,ShieldAlert,ShoppingCart,Wallet} from 'lucide-react';
 import {Link} from 'react-router-dom';
 import {CartesianGrid,Line,LineChart,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
@@ -55,6 +56,6 @@ function PreviewPortfolio(){
  </Card>
  <div className="mt-5 grid gap-5 xl:grid-cols-2"><Card title="Income summary" description="Calculated only from a hypothetical record-date position">
   <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-financial text-2xl font-bold text-[#102B4E]">{inr(entitlement.entitlement)}</p><Status value="PREVIEW_ONLY"/></div><p className="mt-3 text-xs text-slate-500">Eligible ANSH: {entitlement.eligibleUnits} of {integer(entitlement.totalUnits)} · illustrative distribution {inr(entitlement.totalAmount)}. Real entitlements require verified record-date ownership.</p>
- </Card><Card title="External REIT holdings" description="Separate legal instrument; not eligible for ANSH collateral"><div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-4"><div><p className="text-sm font-semibold text-slate-700">Illustrative Indian REIT</p><p className="mt-1 text-xs text-slate-500">External instrument · no connected custodian</p></div><Status value="PREVIEW_ONLY"/></div><p className="mt-3 text-xs text-slate-500">No live REIT trading, ledger custody or pledge is represented.</p></Card></div>
+ </Card><ReitHoldingsCard/></div>
  </>;
 }

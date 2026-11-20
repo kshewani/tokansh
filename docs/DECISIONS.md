@@ -455,3 +455,16 @@ UI/API labels must explicitly disclose this boundary. Actual on-chain restrictio
 remain unimplemented and must not be claimed from this milestone. This limited
 scope does not approve real lending, legal collateral enforceability or production
 identity/credit controls.
+
+### M6 demo scope — REIT representations and current-balance income illustrations
+
+M6 uses curated simulated REIT positions and research assumptions, not ledger-issued
+REITs or a market-data feed. Underlying exchange-hour trading constraints are not
+removed by representing units in this UI. REITs remain separate from ANSH financing.
+
+ANSH income in this milestone is an **illustrative current-balance snapshot**, not
+ADR-014's verified historical/record-date distribution workflow. Real historical
+entitlement and settlement remain unavailable. An explicit simulated completion is
+stored only in browser-local demo history and never credits cash or token holdings.
+This frontend-only exception does not replace the application-database/audit and
+historical ownership requirements for any future actual distribution workflow.

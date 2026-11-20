@@ -2,6 +2,11 @@ import {useState} from 'react';
 import {Activity,AlertTriangle,BookOpen,FileClock,HandCoins,Info,Landmark,Layers3,ShieldAlert} from 'lucide-react';
 import {Bar,BarChart,CartesianGrid,Cell,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
 import {useApp,usePreview} from '../app/context';
+import {CurrentDistributions} from '../components/IncomeDistributions';
+import {AssetResearch} from '../components/AssetResearch';
+import {ReitIncomeCard} from '../components/ReitHoldings';
+import {allocation} from '../demo/investments';
+import {moneyINR,rupeesToMinor} from '../api/financing';
 import {SystemStatusView} from '../components/SystemStatus';
 import {route} from '../api/contracts';
 import {inr,integer,phaseIndex,sample} from '../demo/scenario';
@@ -10,12 +15,14 @@ import {Card,Metric,SectionHeading,EmptyState} from '../components/ui/card';
 import {DataRow,Field} from '../components/ui/form';
 import {ReviewDialog} from '../components/ui/dialog';
 import {Status} from '../components/ui/status';
-export function Distributions(){
+export function Distributions(){const {mode}=useApp();return mode==='real'?<CurrentDistributions/>:<PreviewDistributions/>;}
+function PreviewDistributions(){
  const {role,phase,entitlement,submit,submitting}=usePreview();
  const [recordDate,setRecordDate]=useState(sample.recordDate),[amount,setAmount]=useState(sample.distribution),[open,setOpen]=useState(false);
  const eligible=phaseIndex(phase)>=3;
- const valid=!!recordDate&&Number(amount)>0&&Number.isFinite(Number(amount));
- const computed=valid?inr(Number(amount)*entitlement.eligibleUnits/100000):'—';
+ let minor:string|null=null;try{minor=rupeesToMinor(amount);}catch{/* Invalid amounts have no entitlement. */}
+ const valid=!!recordDate&&minor!==null;
+ const computed=valid?moneyINR(allocation(minor!,entitlement.eligibleUnits,100000)):'—';
  return <><SectionHeading title="Rental Distributions" description="Declare income and calculate eligible entitlements using verified record-date ownership."/>
  <div className="grid gap-4 md:grid-cols-3"><Metric label="Illustrative distribution" value={inr(sample.distribution)} description="Total declared amount"/><Metric label="Record-date ANSH · illustration" value={integer(entitlement.eligibleUnits)} description="Requires verified ledger snapshot"/><Metric label="Illustrative investor entitlement" value={inr(entitlement.entitlement)} description="500 / 100,000 × ₹10,00,000"/></div>
  <div className="mt-5 grid gap-5 xl:grid-cols-2">
@@ -33,6 +40,7 @@ export function Distributions(){
  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"><strong>Record-date rule:</strong> current holdings must not substitute for historical holdings. A verified DRUNIX snapshot or reconstruction is needed before a confirmed entitlement can be displayed.</div>
  {eligible&&<p className="mt-4 text-xs text-slate-500">Expected example: {integer(entitlement.eligibleUnits)} / 100,000 × {inr(sample.distribution)} = {inr(entitlement.entitlement)}.</p>}
  </Card></div>
+ <div className="mt-5"><ReitIncomeCard/></div>
  <ReviewDialog open={open} onOpenChange={setOpen} title="Review rental distribution" description="Backend must calculate allocations from confirmed record-date ownership. Payment simulation is a separate stage." onConfirm={async()=>{await submit(route.distributions,{property_id:sample.id,period:sample.distributionPeriod,record_date:recordDate,total_amount:amount,currency:'INR'});setOpen(false);}} busy={submitting} confirmLabel="Submit declaration"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Record date" value={recordDate}/><DataRow label="Total" value={inr(amount)}/><DataRow label="Snapshot evidence" value="Not connected"/></dl></ReviewDialog>
  </>;
 }
@@ -48,7 +56,8 @@ export function Audit({mode='audit'}:{mode?:'audit'|'transactions'}){
  </Card><div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4 text-xs leading-6 text-blue-900"><strong>Transaction integrity:</strong> Submission, unknown outcome and reconciliation-required states are distinct from COMMITTED. This frontend does not fabricate a DRUNIX transaction ID. Current selected illustration: {phase}.</div>
  </>;
 }
-export function Intelligence(){
+export function Intelligence(){const {mode}=useApp();return mode==='real'?<AssetResearch/>:<PreviewIntelligence/>;}
+function PreviewIntelligence(){
  const [occupancy,setOccupancy]=useState(94),[valuation,setValuation]=useState(100),[rental,setRental]=useState(8.2);
  const data=[{name:'Current',value:100},{name:'Scenario',value:valuation}];
  return <><SectionHeading title="Asset Intelligence" description="Explore illustrative property assumptions without implying guaranteed returns or verified valuations."/>

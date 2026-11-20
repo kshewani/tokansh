@@ -102,3 +102,26 @@ test('financing detail shows simulated loan amounts, dated lifecycle and the cor
  const repaid=renderToStaticMarkup(h(LoanDetails,{loan:{...base,state:'REPAID',outstanding_principal_minor:'0',amount_due_minor:'0'},onAction:()=>{}}));
  assert.match(repaid,/Release simulation reservation/);assert.doesNotMatch(repaid,/Simulate full repayment/);
 });
+
+const {ReitHoldingsCard}=await import('../src/components/ReitHoldings.tsx');
+const {CurrentDistributions}=await import('../src/components/IncomeDistributions.tsx');
+const {AssetResearch}=await import('../src/components/AssetResearch.tsx');
+function renderInvestment(Component){const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});try{return renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(Component))))));}finally{cache.clear();}}
+test('REIT representation displays separate subtotal, exact yield, trading boundary and collateral exclusion',()=>{
+ const html=renderToStaticMarkup(h(MemoryRouter,null,h(ReitHoldingsCard)));
+ assert.match(html,/SIMULATED/);assert.match(html,/₹60,000.00/);assert.match(html,/7.20%/);assert.match(html,/6.40%/);
+ assert.match(html,/applicable exchange hours/);assert.match(html,/does not enable unrestricted 24\/7 trading/);
+ assert.match(html,/Not eligible/);assert.match(html,/Consolidated live portfolio value: unavailable/);
+});
+test('income view separates projections and empty local payout history without invented settlement evidence',()=>{
+ const html=renderInvestment(CurrentDistributions);
+ assert.match(html,/Projected ANSH income/);assert.match(html,/Projected REIT income/);
+ assert.match(html,/No simulated completed payouts yet/);assert.match(html,/not audited historical or record-date ownership/);
+ assert.doesNotMatch(html,/· SIMULATED COMPLETED|COMMITTED_VALID|ledger transaction ID/);
+});
+test('research distinguishes illustrative assumptions from sourced ledger observations',()=>{
+ const html=renderInvestment(AssetResearch);
+ assert.match(html,/curated scenario/);assert.match(html,/No guaranteed buyer|no guaranteed buyer/);
+ assert.match(html,/Configured property reference/);assert.match(html,/Curated demonstration labels/);
+ assert.match(html,/no independent appraisal|independent appraisal/);assert.match(html,/Explainable investment insights/);
+});

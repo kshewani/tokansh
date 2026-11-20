@@ -27,12 +27,12 @@ The illustrative baseline data uses TechPark One at ₹100 crore, 100,000 author
 
 ## Backend integration
 
-Backend and Go/DRUNIX infrastructure are maintained separately inside the team repository. The frontend API boundary is in `src/api/`. System Status and the M4.3 investor Marketplace/Portfolio are integrated; other business screens remain unavailable in Connected Mode. Browser identity selection is the local X-Demo-Role mechanism, not production authentication. The frontend does not have a runtime ledger simulation fallback.
+Backend and Go/DRUNIX infrastructure are maintained separately inside the team repository. The frontend API boundary is in `src/api/`. System Status, investor Marketplace/Portfolio, simulated financing, illustrative income and asset research are integrated. Unconnected onboarding, issuance and audit workflows remain unavailable in Connected Mode. Browser identity selection is the local X-Demo-Role mechanism, not production authentication. The frontend does not have a runtime ledger simulation fallback.
 
 Use `.env.example` to configure local `.env.local`, never commit secrets. A configured API URL alone does not make ledger operations complete.
 
 - `VITE_API_MODE=preview` (default): retains scenario stages, illustrative holdings and preview forms; no API requests are sent.
-- `VITE_API_MODE=real` with `VITE_API_BASE_URL`: selects Connected Mode. System Status requests `/api/v1/system/status`; Marketplace, Portfolio and the investor dashboard use the transfer/balance APIs described below. Other business screens remain unavailable without preview balances or history. A missing URL remains a Connected Mode configuration error, without falling back to preview.
+- `VITE_API_MODE=real` with `VITE_API_BASE_URL`: selects Connected Mode. System Status requests `/api/v1/system/status`; Marketplace, Portfolio and the investor dashboard use the transfer/balance APIs described below. Financing, Income Distributions and Asset Intelligence provide their explicitly labeled simulations/illustrations. Other business screens remain unavailable without preview balances or history. A missing URL remains a Connected Mode configuration error, without falling back to preview.
 
 System Status validates the existing frontend `SystemStatus` shape inside the documented `{data, meta}` envelope. It supports loading, explicit refresh/retry, HTTP/network/timeout errors and malformed-response feedback. Missing component observations remain unknown. Component availability comes from returned statuses; a returned last-operation reference is not proof of commitment. Cached observations are hidden during refresh and after failure.
 
@@ -144,3 +144,49 @@ No new credentials, chaincode, Gateway operations, migrations or dependencies ar
 introduced. The new backend routes must be loaded in a separately authorized
 runtime deployment; this implementation does not restart processes or execute
 live financing/ANSH operations.
+
+## M6 — REIT representations, income and research
+
+The existing Portfolio now displays two curated **simulated REIT representations**
+with fund/category, units, illustrative NAV, position value and an annualized yield
+derived from the same quarterly rate used by Distributions. Their REIT-only subtotal
+is INR 60,000; quarterly illustrative income is INR 1,040. ANSH units and REIT units
+are never summed together, and no consolidated live monetary NAV is produced without
+a live ANSH price. REIT units are not eligible for ANSH collateral financing.
+Trading is not integrated: underlying REIT trading follows applicable exchange
+hours, and this representation does not establish unrestricted 24/7 trading or
+blockchain issuance. Neither fund is a claim about a real listed fund.
+
+Connected **Income Distributions** refreshes balances on entry and reads Investor A's
+balance again when preparing a review. Per-ANSH amounts are user-entered quarterly
+illustrations. The snapshot stores units, rate, browser receipt time and source;
+it is not audited historical/record-date ownership. Missing balance reads never
+fall back to the known demo balances or Preview fixtures. REIT estimates stay
+separate, while the combined income illustration sums each line exactly once.
+All income/NAV arithmetic uses integer paise (BigInt); the old Preview pool allocation
+also uses integer paise with downward rounding for fractional-paise allocations.
+
+“Record simulated payout” calls no payment or settlement API. It records only an
+explicitly labeled `SIMULATED_COMPLETED` receipt in this browser's localStorage,
+scoped to the current ownership-source mode and existing Investor A holder ID.
+Projections are not history entries. History starts empty, retains up to 20 receipts,
+checks line/total consistency and deduplicates repeated confirmation IDs. Browser
+clearing loses it; local edits are not trusted audit evidence. It does not credit
+cash or holdings. Corrupt/unavailable storage displays an error instead of inventing
+payouts or overwriting existing records. No backend/database changes are introduced.
+
+Connected **Asset Research & Intelligence** reuses the existing research route.
+Its investment thesis and liquidity/concentration/valuation risk notes are curated,
+deterministic rules. Valuation, occupancy, yield, property descriptions and imagery
+are explicitly illustrative. Current ANSH balance reads and the configured property
+reference have separate source labels; lease rolls, appraisals, market feeds and
+registration terms are not fabricated. Editable assumptions calculate gross annual
+rent, then apply occupancy once; they never price ledger units or create entitlement.
+Portfolio, research and distributions share one REIT dataset to prevent inconsistent
+NAV, income or yield figures. Preview scenario controls and prior workflows remain
+available, including the historical distribution-declaration illustration.
+
+Focused tests cover REIT totals, exact paise arithmetic, fresh-read/no-fallback
+behavior, explicit local completion/history integrity, deterministic insights and
+rendered labels/trading boundaries. Only mocked requests are used. No live payouts,
+blockchain writes, service restarts, credentials or external integrations are added.

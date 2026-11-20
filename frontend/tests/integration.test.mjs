@@ -25,11 +25,11 @@ test('connected mode has no preview holdings or history at any scenario phase',(
   assert.equal(previewData('real',phase.id),null);
   assert.ok(previewData('preview',phase.id));
  }
- for(const path of ['/registry','/issuance','/transactions','/distributions','/audit','/intelligence','/future-screen']){
+ for(const path of ['/registry','/issuance','/transactions','/audit','/future-screen']){
   assert.equal(screenIntegrated('real',path),false);
   assert.equal(screenIntegrated('preview',path),true);
  }
- for(const path of ['/overview','/marketplace','/portfolio','/collateral','/lending'])assert.equal(screenIntegrated('real',path),true);
+ for(const path of ['/overview','/marketplace','/portfolio','/collateral','/lending','/distributions','/intelligence'])assert.equal(screenIntegrated('real',path),true);
  assert.equal(screenIntegrated('real','/system'),true);
  assert.equal(screenIntegrated('real','/System/'),true);
  assert.equal(screenIntegrated('real','/system/history'),false);
