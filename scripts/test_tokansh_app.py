@@ -198,9 +198,22 @@ class LifecycleTests(unittest.TestCase):
             launch.assert_not_called();stop.assert_not_called()
 
     def test_exact_reviewed_contract_interfaces_start(self):
-        for info in (app.INFO,app.INFO_V11):
+        for info in (app.INFO,app.INFO_V11,app.INFO_V12):
             with self.subTest(functions=len(info['functions'])):
                 self.check_metadata_start({'data':copy.deepcopy(info)},True)
+
+    def test_v12_metadata_remains_exact(self):
+        for key,value in [('contract','basic'),('schema_version',True),('schema_version',1.0),
+                          ('supply_interpretation','MINTED_SUPPLY'),
+                          ('functions',app.INFO_V12['functions']+['BurnANSH']),
+                          ('functions',app.INFO_V12['functions'][:-1]+['transferANSH']),
+                          ('functions',app.INFO_V12['functions']+['TransferANSH']),
+                          ('functions',list(reversed(app.INFO_V12['functions']))),('extra',1)]:
+            with self.subTest(key=key,value=value):
+                self.check_metadata_start({'data':{**app.INFO_V12,key:value}},False)
+        for key in app.INFO_V12:
+            info=copy.deepcopy(app.INFO_V12);del info[key]
+            self.check_metadata_start({'data':info},False)
 
     def test_unreviewed_or_malformed_contract_interfaces_block_start(self):
         cases=[None,[],{}, {'data':None}, {'data':[]},

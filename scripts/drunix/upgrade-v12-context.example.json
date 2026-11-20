@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "deployment_id": "REPLACE-unique-M42-review-id",
+  "network_root": "/absolute/path/to/drunix",
+  "release_directory": "/absolute/path/to/private-M42-release",
+  "package_path": "/absolute/path/to/private-M42-release/tokansh_1.2.tar.gz",
+  "package_sha256": "REPLACE-reviewed-sha256",
+  "package_id": "tokansh_1.2:REPLACE-reviewed-sha256",
+  "package_identity_path": "/absolute/path/to/private-M42-release/package-identity.json",
+  "package_identity_sha256": "REPLACE-reviewed-sha256",
+  "source_revision": "REPLACE-reviewed-40-character-git-revision",
+  "baseline_path": "/absolute/path/to/private-M42-release/baseline.json",
+  "baseline_sha256": "REPLACE-reviewed-sha256",
+  "cp_certificate_sha256": {
+    "Org1MSP": "REPLACE-certificate-DER-sha256",
+    "Org2MSP": "REPLACE-certificate-DER-sha256"
+  },
+  "channel": "mychannel",
+  "chaincode": "tokansh",
+  "current_version": "1.1",
+  "current_sequence": 2,
+  "version": "1.2",
+  "sequence": 3,
+  "policy": "AND('Org1MSP.peer','Org2MSP.peer')",
+  "init_required": false
+}

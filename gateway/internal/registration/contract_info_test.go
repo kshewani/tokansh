@@ -12,8 +12,11 @@ import (
 // for M4.1; schema_version remains 1 and is not the lifecycle version.
 const contractInfoV11 = `{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation"],"supply_interpretation":"LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}`
 
+// Exact nine-function interface in the reviewed local M4.2 chaincode.
+const contractInfoV12 = `{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation","TransferANSH"],"supply_interpretation":"LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}`
+
 func TestReviewedContractInterfaces(t *testing.T) {
-	for _, body := range []string{contractInfoV11, strings.Replace(contractInfoV11, `,"IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation"`, "", 1)} {
+	for _, body := range []string{contractInfoV12, contractInfoV11, strings.Replace(contractInfoV11, `,"IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation"`, "", 1)} {
 		ledger := &readLedger{body: []byte(body)}
 		got, err := (&Service{Ledger: ledger}).Read(context.Background(), "GetContractInfo", "")
 		var want ContractInfo
@@ -25,10 +28,13 @@ func TestReviewedContractInterfaces(t *testing.T) {
 
 func TestUnexpectedContractMetadataRejected(t *testing.T) {
 	cases := map[string]string{
-		"malformed":     `{`,
-		"duplicate key": strings.Replace(contractInfoV11, `"contract":"tokansh"`, `"contract":"wrong","contract":"tokansh"`, 1),
-		"case variant":  strings.Replace(contractInfoV11, `"functions"`, `"Functions"`, 1),
-		"trailing JSON": contractInfoV11 + `{}`,
+		"malformed":              `{`,
+		"duplicate key":          strings.Replace(contractInfoV11, `"contract":"tokansh"`, `"contract":"wrong","contract":"tokansh"`, 1),
+		"case variant":           strings.Replace(contractInfoV11, `"functions"`, `"Functions"`, 1),
+		"trailing JSON":          contractInfoV11 + `{}`,
+		"v12 unknown function":   strings.Replace(contractInfoV12, "TransferANSH", "BurnANSH", 1),
+		"v12 duplicate function": strings.Replace(contractInfoV12, "TransferANSH", "GetBalance", 1),
+		"v12 extra function":     strings.Replace(contractInfoV12, `"TransferANSH"]`, `"TransferANSH","FutureFunction"]`, 1),
 	}
 	for name, change := range map[string]func(map[string]any){
 		"identity":           func(v map[string]any) { v["contract"] = "basic" },

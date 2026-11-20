@@ -35,14 +35,18 @@ func recognizedBusinessError(message, function string) string {
 	if strict([]byte(strings.TrimPrefix(message, prefix)), &business) != nil {
 		return ""
 	}
-	if (function == "GetRegisteredProperty" || function == "GetIssuanceState" || function == "GetBalance" || function == "IssueANSH") && business.Code == "PROPERTY_NOT_FOUND" && business.Message == "Registered property was not found." {
+	if (function == "GetRegisteredProperty" || function == "GetIssuanceState" || function == "GetBalance" || function == "IssueANSH" || function == "TransferANSH") && business.Code == "PROPERTY_NOT_FOUND" && business.Message == "Registered property was not found." {
 		return business.Code
 	}
 	if (function == "GetOperation" || function == "GetIssuanceOperation") && business.Code == "OPERATION_NOT_FOUND" && business.Message == "Operation was not found." {
 		return business.Code
 	}
-	if function == "IssueANSH" {
+	if function == "IssueANSH" || function == "TransferANSH" {
 		messages := map[string]string{"IDEMPOTENCY_CONFLICT": "Operation was already used with different parameters.", "ISSUANCE_LIMIT_EXCEEDED": "Requested issuance exceeds approved supply.", "UNAUTHORIZED": "Identity is not authorized."}
+		if function == "TransferANSH" {
+			delete(messages, "ISSUANCE_LIMIT_EXCEEDED")
+			messages["INSUFFICIENT_BALANCE"] = "Sender has insufficient ANSH."
+		}
 		if message, ok := messages[business.Code]; ok && message == business.Message {
 			return business.Code
 		}
@@ -91,6 +95,8 @@ func classifyEvaluation(err error, function string) error {
 func classifiedBusinessFailure(expected string) error {
 	unavailable := &readFailure{"LEDGER_UNAVAILABLE", "DRUNIX evaluation is unavailable.", http.StatusServiceUnavailable}
 	switch expected {
+	case "INSUFFICIENT_BALANCE":
+		return &readFailure{expected, "Sender has insufficient ANSH.", http.StatusConflict}
 	case "IDEMPOTENCY_CONFLICT":
 		return &readFailure{expected, "Operation was already used with different parameters.", http.StatusConflict}
 	case "ISSUANCE_LIMIT_EXCEEDED":
@@ -108,14 +114,23 @@ func classifiedBusinessFailure(expected string) error {
 
 // Explicit-organization Endorse uses Aborted with per-endorser ErrorDetail, not
 // Evaluate's Unknown framing. Never infer a business rejection from outer text alone.
-func classifyIssuancePreparation(err error) error {
+func classifyIssuancePreparation(err error) error { return classifyPreparation(err, "IssueANSH") }
+
+func classifyPreparation(err error, function string) error {
+	if function != "IssueANSH" && function != "TransferANSH" {
+		return invalid
+	}
+	operation := "issuance"
+	if function == "TransferANSH" {
+		operation = "transfer"
+	}
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded {
-		return &readFailure{"LEDGER_TIMEOUT", "DRUNIX issuance preparation timed out.", http.StatusGatewayTimeout}
+		return &readFailure{"LEDGER_TIMEOUT", "DRUNIX " + operation + " preparation timed out.", http.StatusGatewayTimeout}
 	}
-	unavailable := &readFailure{"LEDGER_UNAVAILABLE", "DRUNIX issuance preparation is unavailable.", http.StatusServiceUnavailable}
+	unavailable := &readFailure{"LEDGER_UNAVAILABLE", "DRUNIX " + operation + " preparation is unavailable.", http.StatusServiceUnavailable}
 	var rpc interface{ GRPCStatus() *status.Status }
 	if !errors.As(err, &rpc) {
 		return unavailable
@@ -134,7 +149,7 @@ func classifyIssuancePreparation(err error) error {
 		if !ok || peer.Address == "" || (peer.MspId != "Org1MSP" && peer.MspId != "Org2MSP") {
 			return unavailable
 		}
-		code := recognizedBusinessError(peer.Message, "IssueANSH")
+		code := recognizedBusinessError(peer.Message, function)
 		if code == "" || (expected != "" && code != expected) {
 			return unavailable
 		}

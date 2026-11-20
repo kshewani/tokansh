@@ -132,3 +132,62 @@ claim or second transaction database. The existing registration-only endorsement
 inspection tooling also needs issuance-specific review before the first issuance.
 The running Gateway was not restarted; these new endpoints have only automated
 mock-based acceptance. No issuance, registration or transfer was submitted.
+
+## M4.2 typed transfers and v1.2 compatibility (local implementation)
+
+Metadata validation accepts only the exact reviewed ordered four-, eight- and
+nine-function interfaces. v1.2 appends `TransferANSH`; contract identity, metadata
+schema_version 1, exact fields and lifetime supply interpretation are unchanged.
+This is interface recognition, not a query of the deployed lifecycle definition.
+Issuance receipts now allow issuer inventory between the issuance quantity and
+cumulative issued supply, matching v1.2 after holdings have been transferred.
+Earlier M3/M4.1 compatibility and artifact wire schemas remain supported.
+
+All routes below use the existing `/v1/tokansh/` prefix and private authentication:
+
+| Method | Path | Request / response |
+|---|---|---|
+| POST | `transfers/prepare` | TransferCommand / `{data: TransferArtifact}`; endorsement only |
+| POST | `transfers/submit` | Original TransferArtifact / `{data:{state:"SUBMITTED",transaction_id:...}}` |
+| POST | `transfers/commit-status` | Original TransferArtifact / `{data:{transaction_id,code,block_number,successful}}` |
+
+TransferCommand has exactly `command_version` (1), UUID `operation_id`, UUID
+`property_id`, UUID `from_holder_id`, UUID `to_holder_id`, and integer `quantity`
+(1..9007199254740991). Sender/recipient must differ. The SDK invokes
+`TransferANSH(commandJSON)` with exactly one canonical JSON argument and requests
+Org1MSP and Org2MSP endorsements. Account UUIDs are attribution: the existing pinned
+Org1 User1 authority acts on behalf of holders, not investor personal signing keys.
+
+TransferArtifact has the same version-1 field layout as IssuanceArtifact, but uses
+`function:"TransferANSH"` and the full typed TransferCommand. Function/command bytes,
+canonical command digest, pinned creator, channel, transaction ID and transaction
+bytes are checked and MAC-bound. Cross-use of issuance/transfer artifacts fails.
+The shared typed artifact helpers preserve existing issuance JSON/MAC encoding.
+Registration artifacts and endpoints remain unchanged.
+
+All three transfer POSTs require both the bearer secret and operator capability;
+Origin/browser requests remain rejected. Five-second SDK deadlines and no-retry
+behavior are unchanged. The exact reviewed Endorse Aborted detail for
+`INSUFFICIENT_BALANCE` maps to HTTP 409; conflicting operation reuse is also 409.
+Property absence maps to 404 and chaincode authorization failure to 403. Unknown,
+conflicting or malformed details remain sanitized 503; preparation deadlines are
+504. Submit/status uncertainty uses the existing HTTP 503 UNKNOWN envelope and
+original transaction ID. An acknowledgement is not a valid commit. Preserve the
+original artifact; never blindly resubmit an ambiguous transfer.
+
+No receipt-read endpoint is added: the reviewed chaincode has no public
+GetTransferOperation function. Identical replay protection remains on-chain through
+the transfer operation receipt; do not replay a transfer just to read it. Commit
+status and existing property-specific balance reads are available for reconciliation.
+These APIs remain stateless and operator-supervised, without durable submission
+ownership or a global exactly-once guarantee.
+
+No live transfer, preparation, service restart or chaincode upgrade was performed.
+The deployed contract remains v1.1/sequence 2. Before transfer use: independently
+review/package/approve/commit v1.2/sequence 3 under the existing two-org policy,
+preserve existing property/issuance/basic records, and separately authorize Gateway
+replacement and live read-only acceptance. The Python launcher still accepts only
+four/eight-function metadata; update and test its exact nine-function compatibility
+before using whole-stack start/restart after upgrade. Existing deployment tools and
+frozen v1.1 artifacts cannot authorize the sequence-3 upgrade. Payment/settlement,
+pledges, ownership projections and investor UI are outside this Gateway task.

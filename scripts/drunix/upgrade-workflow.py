@@ -36,11 +36,62 @@ PHASES = ['package', 'preflight', 'install-org1', 'install-org2', 'approve-org1'
           'approve-org2', 'verify-approval-org1', 'verify-approval-org2', 'readiness', 'commit', 'verify']
 PARAMS = dict(channel='mychannel', chaincode='tokansh', current_version='1.0',
               current_sequence=1, version='1.1', sequence=2, policy=POLICY, init_required=False)
+M42 = False
+APPROVAL_FIELD = 'approval_v1'
+
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
 APPROVAL_ACK = ('I authorize one attempt to establish the reviewed TokANSH version 1.1 sequence-2 approval '
                 'for this organization, including replacement or repair of an existing uncommitted approval.')
 MAINTENANCE_ACK = ('I confirm an operator-controlled maintenance window on mychannel with no competing '
                    'lifecycle operators or known in-flight lifecycle operations.')
+
+def configure_m42():
+    """Second fixed reviewed transition, not an arbitrary deployment framework.
+
+    The legacy entry point remains 1.0/1 -> 1.1/2. A new release/context/package
+    and newly reviewed issuance-aware baseline are mandatory for this profile.
+    """
+    global M42, APPROVAL_FIELD, FUNCTIONS, M4_FUNCTIONS, APPROVAL_ACK
+    require(not M42, 'M4.2 profile already selected')
+    M42 = True
+    APPROVAL_FIELD = 'approval_previous'
+    FUNCTIONS = M4_FUNCTIONS
+    M4_FUNCTIONS = FUNCTIONS + ['TransferANSH']
+    PARAMS.update(current_version='1.1', current_sequence=2, version='1.2', sequence=3)
+    APPROVAL_ACK = APPROVAL_ACK.replace('version 1.1 sequence-2', 'version 1.2 sequence-3')
+
+def package_label():
+    return 'tokansh_' + PARAMS['version']
+
+ISSUANCE_ID = '97a0703a-1d08-482d-ae1c-90f24a9c5e48'
+ISSUANCE_TX = 'acae76b82c30a53372127bd73f15e511fb9795fbd142a970d1ff27e0c7f4a59a'
+ISSUER_ID = '00000000-0000-4000-8000-000000000002'
+ISSUANCE_FIELDS = ('issuance', 'issuer_balance', 'issuance_operation')
+
+def issuance_records(row):
+    """Pin the supervised first issuance; these records must survive unchanged."""
+    prop = row['property']; receipt = row['issuance_operation']
+    pid = 'f6169750-4676-4e99-887f-2bc5471bd518'
+    require(prop['property_id'] == pid and prop['issuer_id'] == ISSUER_ID
+            and prop['approved_supply'] == 100
+            and prop['registration_operation_id'] == 'edaeabd1-78e9-4e9d-a808-92affc2a81af'
+            and prop['registration_transaction_id'] == '205f60daf6790d1d2a9cc2077026691e6bdef754810c1451c6791f0e892b984f',
+            'Unexpected protected registration')
+    state = dict(schema_version=1,property_id=pid,issuer_id=ISSUER_ID,approved_supply=100,
+                 cumulative_issued_supply=10,remaining_issuance_capacity=90)
+    balance = dict(schema_version=1,property_id=pid,holder_id=ISSUER_ID,quantity=10)
+    for name, expected in (('issuance',state),('issuer_balance',balance)):
+        fields(row[name],expected)
+        require(all(type(row[name][k]) is type(v) and row[name][k] == v for k,v in expected.items()),
+                'Unexpected preserved '+name)
+    expected = dict(schema_version=1,operation_id=ISSUANCE_ID,authorizing_msp='Org1MSP',
+        authorizing_principal=prop['registered_by_principal'],function='IssueANSH',
+        request_digest=receipt.get('request_digest'),property_id=pid,issuer_id=ISSUER_ID,
+        quantity=10,original_transaction_id=ISSUANCE_TX,
+        result=dict(property_id=pid,issuer_id=ISSUER_ID,operation_id=ISSUANCE_ID,transaction_id=ISSUANCE_TX,
+                    quantity=10,cumulative_issued_supply=10,remaining_issuance_capacity=90,issuer_balance=10))
+    fields(receipt,expected); sha(receipt['request_digest'])
+    require(json.dumps(receipt,sort_keys=True,allow_nan=False) == json.dumps(expected,sort_keys=True,allow_nan=False), 'Unexpected preserved issuance receipt')
 
 class Stop(Exception):
     pass
@@ -126,7 +177,7 @@ def require_verification(runner, manifest, binding, org, observed, current_chann
     require(isinstance(observation, dict) and observation.get('state') == 'MATCH',
             'Latest approval verification is not MATCH; manual review required')
     fields(observation,['state','observed'])
-    approval(observation['observed'], '1.1', 2, manifest['package_id'])
+    approval(observation['observed'], PARAMS['version'], PARAMS['sequence'], manifest['package_id'])
     require(observation['observed'] == observed, 'Approval changed after independent verification')
     previous, current = channel(value['channel']), channel(current_channel)
     require(current['height'] >= previous['height'], 'Verification is ahead of current ledger')
@@ -313,27 +364,29 @@ def snapshot(value, deployment_id):
     for pin in value['cp_certificate_sha256'].values(): sha(pin)
     fields(value['organizations'], ['1', '2'])
     for org in value['organizations'].values():
-        fields(org, ['channel', 'definitions', 'basic', 'property', 'operation', 'info', 'approval_v1'])
+        fields(org, ['channel', 'definitions', 'basic', 'property', 'operation', 'info', APPROVAL_FIELD] + (list(ISSUANCE_FIELDS) if M42 else []))
         channel(org['channel'])
         defs = definitions({'chaincode_definitions': list(org['definitions'].values())})
         require(defs == org['definitions'])
-        expected_definition(defs['tokansh'], '1.0', 1)
+        expected_definition(defs['tokansh'], PARAMS['current_version'], PARAMS['current_sequence'])
         assets(org['basic']); info(org['info'], False)
         records(org['property'], org['operation'], value['property_id'], value['operation_id'])
-        approval(org['approval_v1'], '1.0', 1)
+        approval(org[APPROVAL_FIELD], PARAMS['current_version'], PARAMS['current_sequence'])
+        if M42: issuance_records(org)
     a, b = value['organizations'].values()
-    for field in ('channel', 'definitions', 'basic', 'property', 'operation', 'info'):
+    for field in ('channel', 'definitions', 'basic', 'property', 'operation', 'info') + (ISSUANCE_FIELDS if M42 else ()):
         require(a[field] == b[field], 'Baseline organizations disagree')
     return value
 
 def preserve(baseline, actual, upgraded):
-    expected_definition(actual['organizations']['1']['definitions']['tokansh'], '1.1' if upgraded else '1.0', 2 if upgraded else 1)
+    expected_definition(actual['organizations']['1']['definitions']['tokansh'], PARAMS['version'] if upgraded else PARAMS['current_version'], PARAMS['sequence'] if upgraded else PARAMS['current_sequence'])
     a, b = actual['organizations'].values()
-    for field in ('channel', 'definitions', 'basic', 'property', 'operation', 'info'):
+    for field in ('channel', 'definitions', 'basic', 'property', 'operation', 'info') + (ISSUANCE_FIELDS if M42 else ()):
         require(a[field] == b[field], 'Organizations disagree')
     for org in ('1', '2'):
         old, new = baseline['organizations'][org], actual['organizations'][org]
-        for field in ('basic', 'property', 'operation', 'approval_v1'):
+        if M42: issuance_records(new)
+        for field in ('basic', 'property', 'operation', APPROVAL_FIELD) + (ISSUANCE_FIELDS if M42 else ()):
             require(old[field] == new[field], 'Preservation mismatch: ' + field)
         require({k:v for k,v in old['definitions'].items() if k != 'tokansh'} ==
                 {k:v for k,v in new['definitions'].items() if k != 'tokansh'}, 'Unexpected other-chaincode definition change')
@@ -403,19 +456,19 @@ class Runner:
     def observe_desired_approval(self, org, package_id):
         try:
             value = self.query(['lifecycle','chaincode','queryapproved','-C','mychannel','--name','tokansh',
-                                '--sequence','2','--output','json'], org)
+                                '--sequence',str(PARAMS['sequence']),'--output','json'], org)
         except CLIRejected as error:
             # This exact source-reviewed error means ABSENT OR INCOMPLETE, never
             # verified absence. Only explicit desired-state repair may proceed.
             message = ("query failed with status: 500 - failed to invoke backing implementation of "
                        "'QueryApprovedChaincodeDefinition': could not fetch approved chaincode definition "
-                       "(name: 'tokansh', sequence: '2') on channel 'mychannel'")
+                       f"(name: 'tokansh', sequence: '{PARAMS['sequence']}') on channel 'mychannel'")
             require(error.returncode == 1 and not error.stdout.strip() and
                     error.stderr.strip() in (message, 'Error: '+message),
                     'UNKNOWN: unrecognized approval-query failure; no approval authorized')
             return dict(state='UNKNOWN',reason='Native query cannot distinguish absence from partial state',repair_supported=True)
         inspect.definition(value, False)
-        require(value['sequence'] == 2, 'Approval query returned an unexpected sequence')
+        require(value['sequence'] == PARAMS['sequence'], 'Approval query returned an unexpected sequence')
         # Native encoding/json omits false init_required. Compare the same
         # canonical lifecycle record as approval(), without changing its meaning.
         value = {**value, 'init_required': value.get('init_required', False)}
@@ -429,7 +482,7 @@ class Runner:
         fields(source, ['LocalPackage']); fields(source['LocalPackage'], ['package_id'])
         inspect.package(source['LocalPackage']['package_id'])
         try:
-            approval(value, '1.1', 2, package_id)
+            approval(value, PARAMS['version'], PARAMS['sequence'], package_id)
         except Stop:
             return dict(state='CONFLICT',observed=value,repair_supported=True)
         return dict(state='MATCH', observed=value)
@@ -449,7 +502,14 @@ class Runner:
             records(prop, op, property_id, operation_id)
             result['organizations'][org] = dict(channel=before[org], definitions=defs,
                 basic=assets(query('basic',['GetAllAssets'])), property=prop, operation=op,
-                info=query('tokansh',['GetContractInfo'], True), approval_v1=self.approval(org,1,'1.0'))
+                info=query('tokansh',['GetContractInfo'], True))
+            result['organizations'][org][APPROVAL_FIELD] = self.approval(org,PARAMS['current_sequence'],PARAMS['current_version'])
+            if M42:
+                row = result['organizations'][org]
+                row['issuance'] = query('tokansh',['GetIssuanceState',property_id], True)
+                row['issuer_balance'] = query('tokansh',['GetBalance',property_id,prop['issuer_id']], True)
+                row['issuance_operation'] = query('tokansh',['GetIssuanceOperation',ISSUANCE_ID], True)
+                issuance_records(row)
         require(before == {org:self.height(org) for org in ('1','2')}, 'Channel changed during snapshot; stop for review')
         return result
 
@@ -503,7 +563,7 @@ class Runner:
 
 
 def definition_args():
-    return ['--channelID','mychannel','--name','tokansh','--version','1.1','--sequence','2',
+    return ['--channelID','mychannel','--name','tokansh','--version',PARAMS['version'],'--sequence',str(PARAMS['sequence']),
             '--signature-policy',POLICY,'--endorsement-plugin','escc','--validation-plugin','vscc','--init-required=false']
 
 def orderer_args(runner):
@@ -525,16 +585,16 @@ def context(path, expected_sha, deployment_id):
     for key in ('package_path','baseline_path','package_identity_path'):
         p = external(m[key], network); private(p)
         require(p.parent == release and digest(p) == sha(m[key.replace('_path','_sha256')]), 'Release input hash/path mismatch')
-    require(m['package_id'] == 'tokansh_1.1:' + m['package_sha256'], 'Unexpected package identity')
+    require(m['package_id'] == package_label()+':' + m['package_sha256'], 'Unexpected package identity')
     identity = checks.load(m['package_identity_path'])
     fields(identity, ['schema_version','deployment_id','source_revision','source_files','package_sha256','package_id','package_size_bytes','label'])
     require(type(identity['schema_version']) is int and identity['schema_version'] == 1
             and identity['deployment_id'] == deployment_id and identity['source_revision'] == m['source_revision']
             and isinstance(m['source_revision'],str) and re.fullmatch('[0-9a-f]{40}',m['source_revision'])
             and identity['package_id'] == m['package_id'] and identity['package_sha256'] == m['package_sha256']
-            and identity['label'] == 'tokansh_1.1' and type(identity['package_size_bytes']) is int
+            and identity['label'] == package_label() and type(identity['package_size_bytes']) is int
             and identity['package_size_bytes'] == Path(m['package_path']).stat().st_size)
-    require(isinstance(identity['source_files'],dict) and {'go.mod','go.sum','main.go','contract/issuance.go'} <= identity['source_files'].keys())
+    require(isinstance(identity['source_files'],dict) and ({'go.mod','go.sum','main.go','contract/issuance.go'} | ({'contract/transfer.go'} if M42 else set())) <= identity['source_files'].keys())
     for name, value in identity['source_files'].items():
         require(isinstance(name,str) and not Path(name).is_absolute() and '..' not in Path(name).parts)
         sha(value)
@@ -563,7 +623,7 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
     require(runner.run([runner.peer,'lifecycle','chaincode','calculatepackageid',m['package_path']]).strip() == m['package_id'])
     actual = runner.capture(m['deployment_id'],baseline['property_id'],baseline['operation_id'])
     current = actual['organizations']['1']['definitions']['tokansh']
-    upgraded = current['version'] == '1.1' and current['sequence'] == 2
+    upgraded = current['version'] == PARAMS['version'] and current['sequence'] == PARAMS['sequence']
     preserve(baseline, actual, upgraded)
     save(runner.evidence/'snapshot.json', actual)
     org = phase[-1] if phase[-1:] in ('1','2') else None
@@ -576,7 +636,7 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
     if phase.startswith('approve-'):
         require(runner.installed(org,m['package_id']) == inspect.MATCH, 'Package not installed')
         if authorization is not None:
-            require(not upgraded, 'Desired-state approval requires committed TokANSH 1.0 sequence 1')
+            require(not upgraded, 'Desired-state approval requires the reviewed previous definition')
             observation = runner.observe_desired_approval(org, m['package_id'])
             save(runner.evidence/'prior-approval.json', observation)
             if observation['state'] == 'MATCH':
@@ -587,7 +647,7 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
                     'Known commit attempt may be in flight; independent recovery review required')
             other = '2' if org == '1' else '1'
             if (runner.release/('attempt-approve-org'+other+'.json')).exists():
-                observed_other = runner.approval(other,2,'1.1',m['package_id'])
+                observed_other = runner.approval(other,PARAMS['sequence'],PARAMS['version'],m['package_id'])
                 require_verification(runner,m,binding,other,observed_other,actual['organizations'][other]['channel'])
             require(observation.get('repair_supported') is True,
                     'Unsupported partial/unknown state; no desired-state mutation authorized')
@@ -609,17 +669,17 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
             # No post-approval query, preservation snapshot, readiness or other
             # phase is chained from the mutation. Verification is separately authorized.
             print('ACKNOWLEDGED_NOT_VERIFIED: one native approval command returned. STOP; independently authorize verify-approval-org'+org+'.'); return
-        runner.approval(org,2,'1.1',m['package_id'])
-        print('MATCH: exact sequence-2 approval exists; inspection only, no mutation.'); return
+        runner.approval(org,PARAMS['sequence'],PARAMS['version'],m['package_id'])
+        print('MATCH: exact target approval exists; inspection only, no mutation.'); return
     if phase.startswith('verify-approval-'):
-        require(not upgraded, 'Approval verification requires public definition 1.0 sequence 1')
+        require(not upgraded, 'Approval verification requires the reviewed previous definition')
         require(runner.installed(org,m['package_id']) == inspect.MATCH, 'Package not installed')
         runner.approval_environment(org)
         verify_approval(runner,m,baseline,binding,org,actual)
         return
     for member in ('1','2'):
         require(runner.installed(member,m['package_id']) == inspect.MATCH, 'Package not installed')
-        observed = runner.approval(member,2,'1.1',m['package_id'])
+        observed = runner.approval(member,PARAMS['sequence'],PARAMS['version'],m['package_id'])
         if phase in ('readiness','commit'):
             require_verification(runner,m,binding,member,observed,actual['organizations'][member]['channel'])
     if phase == 'verify':
@@ -658,7 +718,7 @@ def prepare_package(runner, deployment_id, revision):
     require(run('revision inspection',['git','rev-parse','HEAD'],cwd=REPO).strip() == revision and re.fullmatch('[0-9a-f]{40}',revision))
     require(not run('working-tree inspection',['git','status','--porcelain'],cwd=REPO).strip(), 'Reviewed source must be committed and clean before packaging')
     identity_path = runner.release/'package-identity.json'
-    require(not any((runner.release/name).exists() for name in ('package-identity.json','tokansh_1.1.tar.gz','reproducibility-check.tar.gz','validated-chaincode','staged-chaincode')), 'Do not overwrite a release')
+    require(not any((runner.release/name).exists() for name in ('package-identity.json',(package_label()+'.tar.gz'),'reproducibility-check.tar.gz','validated-chaincode','staged-chaincode')), 'Do not overwrite a release')
     root = REPO/'chaincode/tokansh'
     paths = run('source inventory',['git','ls-files','chaincode/tokansh'],cwd=REPO).splitlines()
     staged = runner.release/'staged-chaincode'; staged.mkdir(mode=0o700)
@@ -670,7 +730,7 @@ def prepare_package(runner, deployment_id, revision):
         require(not any(c in str(relative) for c in '\0\r\n'))
         target = staged/relative; target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(source,target); hashes[str(relative)] = digest(source)
-    require('contract/issuance.go' in hashes, 'Reviewed M4 source missing')
+    require('contract/issuance.go' in hashes and (not M42 or 'contract/transfer.go' in hashes), 'Reviewed M4 source missing')
     env = dict(runner.env,GOTOOLCHAIN='local',GOPROXY='off',GOSUMDB='off',GOFLAGS='-mod=readonly')
     run('Go vendoring',['go','mod','vendor'],env,staged,120)
     require(digest(staged/'go.mod') == hashes['go.mod'] and digest(staged/'go.sum') == hashes['go.sum'])
@@ -682,23 +742,26 @@ def prepare_package(runner, deployment_id, revision):
         ('Go vet',['go','vet','./...'],180),
         ('Go build',['go','build','-o',str(runner.release/'validated-chaincode'),'.'],180)):
         run(operation,args,env,staged,timeout)
-    package = runner.release/'tokansh_1.1.tar.gz'
+    package = runner.release/(package_label()+'.tar.gz')
     repeat = runner.release/'reproducibility-check.tar.gz'
     for destination in (package,repeat):
-        run('chaincode package',[runner.peer,'lifecycle','chaincode','package',destination,'--path',staged,'--lang','golang','--label','tokansh_1.1'])
+        run('chaincode package',[runner.peer,'lifecycle','chaincode','package',destination,'--path',staged,'--lang','golang','--label',package_label()])
     require(digest(package) == digest(repeat), 'Packaging was not reproducible')
     package_id = run('package identity',[runner.peer,'lifecycle','chaincode','calculatepackageid',package]).strip()
-    require(package_id == 'tokansh_1.1:'+digest(package))
+    require(package_id == package_label()+':'+digest(package))
     require(all(digest(staged/name) == value for name,value in hashes.items()), 'Staged reviewed source changed')
     require(not run('final working-tree inspection',['git','status','--porcelain'],cwd=REPO).strip(), 'Source repository changed during packaging')
     save(identity_path,dict(schema_version=1,deployment_id=deployment_id,source_revision=revision,source_files=hashes,
-        package_sha256=digest(package),package_id=package_id,package_size_bytes=package.stat().st_size,label='tokansh_1.1'))
+        package_sha256=digest(package),package_id=package_id,package_size_bytes=package.stat().st_size,label=package_label()))
     print('PASS: staged tests/build and reproducible package. Review package-identity.json; no installation performed.')
 
 
 def main(argv=None):
     os.umask(0o077)
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['--m42']:
+        configure_m42()
+        argv.pop(0)
     require(len(argv) >= 2 and argv[0] in PHASES and argv[1] == '--authorize-'+argv[0],
             'Exactly one phase and its explicit organization-specific acknowledgement are required')
     options = [token.split('=',1)[0] for token in argv[2:] if token.startswith('--')]
@@ -748,7 +811,13 @@ def main(argv=None):
                 recovered = module('recover-m3-baseline').validate_accepted(initial,args.preservation_sha256)
                 require(recovered['cp_certificate_sha256'] == current['cp_certificate_sha256'],
                         'Recovered baseline environment mismatch')
-                preserve(recovered,current,False)
+                if M42:
+                    for org in ('1','2'):
+                        for field in ('property','operation'):
+                            require(recovered['organizations'][org][field] == current['organizations'][org][field],
+                                    'Accepted registration baseline mismatch: '+field)
+                else:
+                    preserve(recovered,current,False)
                 # Adapt only after acceptance/full M3 preservation validation;
                 # retain the existing historical basic/channel checks below.
                 old = {f'Org{org}_{field}':dict(observed=value) for org,row in recovered['organizations'].items()

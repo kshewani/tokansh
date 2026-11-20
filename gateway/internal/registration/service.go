@@ -20,11 +20,12 @@ var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var money = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
 var invalid = errors.New("INVALID_REQUEST")
 
-// Exact reviewed interfaces: deployed M3 and its M4.1 extension. Metadata has
+// Exact reviewed interfaces: M3, M4.1 and M4.2. Metadata has
 // no lifecycle version field; do not accept arbitrary supersets or subsets.
 func supportedContractFunctions(functions []string) bool {
 	return reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty"}) ||
-		reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation"})
+		reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation"}) ||
+		reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"})
 }
 
 // Exact field names, duplicates, nulls and nested unknown fields fail closed.

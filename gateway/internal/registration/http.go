@@ -85,27 +85,44 @@ func Handler(s *Service, operator []byte) http.Handler {
 				return
 			}
 			switch path {
+			case "transfers/prepare":
+				var c TransferCommand
+				c, err = DecodeTransferCommand(raw)
+				if err == nil {
+					data, err = s.PrepareTransfer(ctx, c)
+				}
 			case "issuances/prepare":
 				var c IssuanceCommand
 				c, err = DecodeIssuanceCommand(raw)
 				if err == nil {
 					data, err = s.PrepareIssuance(ctx, c)
 				}
-			case "issuances/submit", "issuances/commit-status":
-				var a IssuanceArtifact
-				err = strict(raw, &a)
-				if err == nil {
-					err = s.CheckIssuance(a)
+			case "issuances/submit", "issuances/commit-status", "transfers/submit", "transfers/commit-status":
+				var envelope Artifact
+				if strings.HasPrefix(path, "transfers/") {
+					var a TransferArtifact
+					err = strict(raw, &a)
+					if err == nil {
+						err = s.CheckTransfer(a)
+					}
+					envelope = commandEnvelope(a)
+				} else {
+					var a IssuanceArtifact
+					err = strict(raw, &a)
+					if err == nil {
+						err = s.CheckIssuance(a)
+					}
+					envelope = issuanceEnvelope(a)
 				}
 				if err == nil {
-					if path == "issuances/commit-status" {
-						data, err = s.Ledger.Status(ctx, issuanceEnvelope(a))
+					if strings.HasSuffix(path, "/commit-status") {
+						data, err = s.Ledger.Status(ctx, envelope)
 					} else {
-						err = s.Ledger.Submit(ctx, issuanceEnvelope(a))
-						data = map[string]string{"state": "SUBMITTED", "transaction_id": a.TransactionID}
+						err = s.Ledger.Submit(ctx, envelope)
+						data = map[string]string{"state": "SUBMITTED", "transaction_id": envelope.TransactionID}
 					}
 					if err != nil {
-						respond(503, map[string]any{"data": map[string]string{"state": "UNKNOWN", "transaction_id": a.TransactionID}, "error": map[string]string{"code": "LEDGER_OUTCOME_UNKNOWN", "message": "Outcome unavailable; retain the artifact and reconcile. Do not resubmit."}})
+						respond(503, map[string]any{"data": map[string]string{"state": "UNKNOWN", "transaction_id": envelope.TransactionID}, "error": map[string]string{"code": "LEDGER_OUTCOME_UNKNOWN", "message": "Outcome unavailable; retain the artifact and reconcile. Do not resubmit."}})
 						return
 					}
 				}
@@ -139,7 +156,7 @@ func Handler(s *Service, operator []byte) http.Handler {
 		}
 		if err != nil {
 			var readErr *readFailure
-			if (r.Method == "GET" || path == "issuances/prepare") && errors.As(err, &readErr) {
+			if (r.Method == "GET" || path == "issuances/prepare" || path == "transfers/prepare") && errors.As(err, &readErr) {
 				respond(readErr.httpStatus, map[string]any{"error": map[string]string{"code": readErr.code, "message": readErr.message}})
 				return
 			}

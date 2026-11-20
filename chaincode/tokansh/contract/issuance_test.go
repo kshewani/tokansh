@@ -278,7 +278,7 @@ func TestIssuanceCorruptSupplyAndBalances(t *testing.T) {
 		{"issuance", "cumulative_issued_supply", 101}, {"issuance", "cumulative_issued_supply", int64(math.MaxInt64)},
 		{"issuance", "remaining_issuance_capacity", 59}, {"issuance", "remaining_issuance_capacity", -1},
 		{"balance", "schema_version", 2}, {"balance", "property_id", "bad"}, {"balance", "holder_id", "bad"},
-		{"balance", "quantity", -1}, {"balance", "quantity", 39}, {"balance", "quantity", 101}, {"balance", "quantity", int64(math.MaxInt64)},
+		{"balance", "quantity", -1}, {"balance", "quantity", 41}, {"balance", "quantity", 101}, {"balance", "quantity", int64(math.MaxInt64)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.object+tc.field+reflect.TypeOf(tc.value).String(), func(t *testing.T) {
@@ -548,7 +548,17 @@ func TestIssuanceNonIssuerInventoryValidation(t *testing.T) {
 	mustIssue(t, cc, ctx, stub, c)
 	holder := "60000000-0000-4000-8000-000000000001"
 	k := issuanceKey(t, "balance", c.PropertyID, holder)
-	for _, quantity := range []int64{0, 1, -1} {
+	for _, quantity := range []int64{0, 1, 2, -1} {
+		// A legitimate positive investor holding is balanced by issuer inventory.
+		issuerQuantity := int64(1)
+		if quantity == 1 {
+			issuerQuantity = 0
+		}
+		issuerBytes, marshalErr := json.Marshal(Balance{1, c.PropertyID, command().IssuerID, issuerQuantity})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		stub.state[issuanceKey(t, "balance", c.PropertyID, command().IssuerID)] = issuerBytes
 		record, err := json.Marshal(Balance{1, c.PropertyID, holder, quantity})
 		if err != nil {
 			t.Fatal(err)
@@ -556,8 +566,8 @@ func TestIssuanceNonIssuerInventoryValidation(t *testing.T) {
 		stub.state[k] = record
 		before, writes := ledgerSnapshot(stub), stub.writes
 		balance, err := cc.GetBalance(ctx, c.PropertyID, holder)
-		if quantity == 0 {
-			if err != nil || balance.Quantity != 0 {
+		if quantity == 0 || quantity == 1 {
+			if err != nil || balance.Quantity != quantity {
 				t.Fatal(balance, err)
 			}
 		} else {

@@ -130,8 +130,8 @@ func issuanceRecords(ctx contractapi.TransactionContextInterface, p *Property) (
 	if state.SchemaVersion != 1 || state.PropertyID != p.PropertyID || state.IssuerID != p.IssuerID || state.ApprovedSupply != p.ApprovedSupply || state.CumulativeIssuedSupply < 1 || state.CumulativeIssuedSupply > p.ApprovedSupply || state.RemainingIssuanceCapacity != p.ApprovedSupply-state.CumulativeIssuedSupply {
 		return nil, nil, failure("LEDGER_STATE_ERROR")
 	}
-	// M4.1 has no transfers/burning: all issued units must be in issuer inventory.
-	if balance.SchemaVersion != 1 || balance.PropertyID != p.PropertyID || balance.HolderID != p.IssuerID || balance.Quantity != state.CumulativeIssuedSupply {
+	// Transfers can reduce issuer inventory; no holder can exceed lifetime issuance.
+	if balance.SchemaVersion != 1 || balance.PropertyID != p.PropertyID || balance.HolderID != p.IssuerID || (balance.Quantity < 0 || balance.Quantity > state.CumulativeIssuedSupply) {
 		return nil, nil, failure("LEDGER_STATE_ERROR")
 	}
 	return state, balance, nil
@@ -157,7 +157,7 @@ func (s *SmartContract) GetBalance(ctx contractapi.TransactionContextInterface, 
 	if err != nil {
 		return nil, err
 	}
-	_, issuer, err := issuanceRecords(ctx, p)
+	state, issuer, err := issuanceRecords(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -173,8 +173,8 @@ func (s *SmartContract) GetBalance(ctx contractapi.TransactionContextInterface, 
 		return nil, err
 	}
 	balance := &Balance{SchemaVersion: 1, PropertyID: propertyID, HolderID: holderID}
-	// Only absent/zero non-issuer balances are possible until transfers exist.
-	if b != nil && (strictRecord(b, balance) != nil || balance.SchemaVersion != 1 || balance.PropertyID != propertyID || balance.HolderID != holderID || balance.Quantity != 0) {
+	// An absent holder account has zero units; persisted balances stay bounded.
+	if b != nil && (strictRecord(b, balance) != nil || balance.SchemaVersion != 1 || balance.PropertyID != propertyID || balance.HolderID != holderID || (balance.Quantity < 0 || balance.Quantity > state.CumulativeIssuedSupply)) {
 		return nil, failure("LEDGER_STATE_ERROR")
 	}
 	return balance, nil
@@ -220,7 +220,7 @@ func (s *SmartContract) GetIssuanceOperation(ctx contractapi.TransactionContextI
 		return nil, failure("LEDGER_STATE_ERROR")
 	}
 	r := op.Result
-	if op.IssuerID != p.IssuerID || r.PropertyID != op.PropertyID || r.IssuerID != op.IssuerID || r.OperationID != operationID || r.TransactionID != op.OriginalTransactionID || r.Quantity != op.Quantity || r.CumulativeIssuedSupply < op.Quantity || r.CumulativeIssuedSupply > p.ApprovedSupply || r.RemainingIssuanceCapacity != p.ApprovedSupply-r.CumulativeIssuedSupply || r.IssuerBalance != r.CumulativeIssuedSupply {
+	if op.IssuerID != p.IssuerID || r.PropertyID != op.PropertyID || r.IssuerID != op.IssuerID || r.OperationID != operationID || r.TransactionID != op.OriginalTransactionID || r.Quantity != op.Quantity || r.CumulativeIssuedSupply < op.Quantity || r.CumulativeIssuedSupply > p.ApprovedSupply || r.RemainingIssuanceCapacity != p.ApprovedSupply-r.CumulativeIssuedSupply || (r.IssuerBalance < r.Quantity || r.IssuerBalance > r.CumulativeIssuedSupply) {
 		return nil, failure("LEDGER_STATE_ERROR")
 	}
 	state, _, err := issuanceRecords(ctx, p)

@@ -111,6 +111,7 @@ func failure(code string) error {
 		"IDEMPOTENCY_CONFLICT":        "Operation was already used with different parameters.",
 		"LEDGER_STATE_ERROR":          "Ledger state could not be processed.",
 		"ISSUANCE_LIMIT_EXCEEDED":     "Requested issuance exceeds approved supply.",
+		"INSUFFICIENT_BALANCE":        "Sender has insufficient ANSH.",
 	}
 	return contractError{code, messages[code]}
 }
@@ -318,7 +319,7 @@ func (s *SmartContract) GetContractInfo(ctx contractapi.TransactionContextInterf
 	if err := authorizeRead(ctx); err != nil {
 		return nil, err
 	}
-	return &ContractInfo{"tokansh", 1, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation"}, "LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}, nil
+	return &ContractInfo{"tokansh", 1, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"}, "LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}, nil
 }
 func (s *SmartContract) GetRegisteredProperty(ctx contractapi.TransactionContextInterface, propertyID string) (*Property, error) {
 	if err := authorizeRead(ctx); err != nil {

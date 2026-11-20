@@ -2,7 +2,6 @@ package registration
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -59,20 +58,7 @@ type IssuanceOperation struct {
 	Result                IssuanceResult `json:"result"`
 }
 
-// Separate artifact type prevents registration/issuance command confusion.
-type IssuanceArtifact struct {
-	Version       int             `json:"version"`
-	Channel       string          `json:"channel"`
-	Chaincode     string          `json:"chaincode"`
-	Signer        string          `json:"signer"`
-	Function      string          `json:"function"`
-	Command       IssuanceCommand `json:"command"`
-	RequestDigest string          `json:"request_digest"`
-	TransactionID string          `json:"transaction_id"`
-	Transaction   []byte          `json:"transaction"`
-	Creator       []byte          `json:"creator"`
-	MAC           string          `json:"mac"`
-}
+type IssuanceArtifact = commandArtifact[IssuanceCommand]
 
 type IssuanceLedger interface {
 	PrepareIssuance(context.Context, IssuanceCommand) (string, []byte, []byte, error)
@@ -91,49 +77,18 @@ func DecodeIssuanceCommand(b []byte) (IssuanceCommand, error) {
 	}
 	return c, validateIssuance(c)
 }
-func issuanceCommandDigest(c IssuanceCommand) string {
-	b, _ := json.Marshal(c)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-func (s *Service) issuanceMAC(a IssuanceArtifact) string {
-	a.MAC = ""
-	b, _ := json.Marshal(a)
-	m := hmac.New(sha256.New, s.Key)
-	m.Write(b)
-	return hex.EncodeToString(m.Sum(nil))
-}
-func issuanceEnvelope(a IssuanceArtifact) Artifact {
-	return Artifact{Channel: a.Channel, Chaincode: a.Chaincode, Signer: a.Signer, TransactionID: a.TransactionID, Transaction: a.Transaction, Creator: a.Creator}
-}
+func issuanceCommandDigest(c IssuanceCommand) string     { return typedCommandDigest(c) }
+func (s *Service) issuanceMAC(a IssuanceArtifact) string { return commandMAC(s.Key, a) }
+func issuanceEnvelope(a IssuanceArtifact) Artifact       { return commandEnvelope(a) }
 func (s *Service) CheckIssuance(a IssuanceArtifact) error {
-	if len(s.Key) != 32 || a.Version != 1 || a.Channel != "mychannel" || a.Chaincode != "tokansh" || a.Signer != Signer || a.Function != "IssueANSH" || validateIssuance(a.Command) != nil || a.RequestDigest != issuanceCommandDigest(a.Command) || strings.TrimSpace(a.TransactionID) == "" || len(a.Transaction) == 0 || len(a.Creator) == 0 || !hmac.Equal([]byte(a.MAC), []byte(s.issuanceMAC(a))) {
-		return invalid
-	}
-	b, e := json.Marshal(a.Command)
-	if e != nil {
-		return invalid
-	}
-	return validatePreparedCommand(issuanceEnvelope(a), "IssueANSH", b)
+	return checkCommandArtifact(s, a, "IssueANSH", validateIssuance)
 }
 func (s *Service) PrepareIssuance(ctx context.Context, c IssuanceCommand) (IssuanceArtifact, error) {
-	if validateIssuance(c) != nil || len(s.Key) != 32 {
-		return IssuanceArtifact{}, invalid
-	}
 	ledger, ok := s.Ledger.(IssuanceLedger)
 	if !ok {
 		return IssuanceArtifact{}, invalid
 	}
-	id, tx, creator, e := ledger.PrepareIssuance(ctx, c)
-	if e != nil {
-		return IssuanceArtifact{}, classifyIssuancePreparation(e)
-	}
-	a := IssuanceArtifact{1, "mychannel", "tokansh", Signer, "IssueANSH", c, issuanceCommandDigest(c), id, tx, creator, ""}
-	a.MAC = s.issuanceMAC(a)
-	if e = s.CheckIssuance(a); e != nil {
-		return IssuanceArtifact{}, e
-	}
-	return a, nil
+	return prepareCommandArtifact(s, ctx, c, "IssueANSH", validateIssuance, ledger.PrepareIssuance)
 }
 
 func (s *Service) ReadIssuance(ctx context.Context, function string, ids ...string) (any, error) {
@@ -175,7 +130,7 @@ func (s *Service) ReadIssuance(ctx context.Context, function string, ids ...stri
 			return nil, invalid
 		}
 		r := v.Result
-		if r.PropertyID != v.PropertyID || r.OperationID != v.OperationID || r.IssuerID != v.IssuerID || r.TransactionID != v.OriginalTransactionID || r.Quantity != v.Quantity || r.CumulativeIssuedSupply < v.Quantity || r.CumulativeIssuedSupply > maxIssuance || r.RemainingIssuanceCapacity < 0 || r.RemainingIssuanceCapacity > maxIssuance-r.CumulativeIssuedSupply || r.IssuerBalance != r.CumulativeIssuedSupply {
+		if r.PropertyID != v.PropertyID || r.OperationID != v.OperationID || r.IssuerID != v.IssuerID || r.TransactionID != v.OriginalTransactionID || r.Quantity != v.Quantity || r.CumulativeIssuedSupply < v.Quantity || r.CumulativeIssuedSupply > maxIssuance || r.RemainingIssuanceCapacity < 0 || r.RemainingIssuanceCapacity > maxIssuance-r.CumulativeIssuedSupply || (r.IssuerBalance < r.Quantity || r.IssuerBalance > r.CumulativeIssuedSupply) {
 			return nil, invalid
 		}
 		// Match chaincode's function/MSP/principal-bound operation digest.
