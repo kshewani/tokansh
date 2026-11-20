@@ -22,6 +22,9 @@ PORTS = {'gateway': 8001, 'backend': 8000, 'frontend': 5173}
 INFO = dict(contract='tokansh', schema_version=1,
             functions=['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty'],
             supply_interpretation='LIFETIME_CUMULATIVE_ISSUANCE_CEILING')
+# Exact M4.1 interface from chaincode GetContractInfo; schema_version remains 1.
+INFO_V11 = {**INFO, 'functions': INFO['functions'] +
+            ['IssueANSH', 'GetIssuanceState', 'GetBalance', 'GetIssuanceOperation']}
 
 
 class Failure(Exception):
@@ -310,7 +313,7 @@ class App:
                 if name == 'gateway':
                     try:
                         data = http_json(8001, '/v1/tokansh/contract-info', env['TOKANSH_GATEWAY_SECRET'])
-                        require(isinstance(data, dict) and isinstance(data.get('data'), dict) and type(data['data'].get('schema_version')) is int and data == {'data': INFO}, 'Unexpected TokANSH contract metadata.')
+                        require(isinstance(data, dict) and isinstance(data.get('data'), dict) and type(data['data'].get('schema_version')) is int and data in ({'data': INFO}, {'data': INFO_V11}), 'Unexpected TokANSH contract metadata.')
                     except Exception:
                         raise Failure('Gateway contract evaluation failed. Check identity, secrets, TLS and separately managed DRUNIX availability; no fallback or ledger write occurred.') from None
             require(all(self.owned(n) for n in PORTS), 'An application process exited during startup.')

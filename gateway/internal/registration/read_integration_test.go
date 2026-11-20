@@ -45,7 +45,7 @@ func (s evaluateServer) Evaluate(ctx context.Context, r *gp.EvaluateRequest) (*g
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &gp.EvaluateResponse{Result: &peer.Response{Status: 200, Payload: []byte(`{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty"],"supply_interpretation":"LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}`)}}, nil
+	return &gp.EvaluateResponse{Result: &peer.Response{Status: 200, Payload: []byte(contractInfoV11)}}, nil
 }
 func TestReadHTTPThroughPinnedSDK(t *testing.T) {
 	for _, tc := range []struct {

@@ -15,6 +15,14 @@ import (
 )
 
 func validatePrepared(a Artifact) error {
+	command, e := json.Marshal(a.Command)
+	if e != nil {
+		return invalid
+	}
+	return validatePreparedCommand(a, "RegisterApprovedProperty", command)
+}
+
+func validatePreparedCommand(a Artifact, function string, command []byte) error {
 	var prepared gp.PreparedTransaction
 	if proto.Unmarshal(a.Transaction, &prepared) != nil || prepared.GetTransactionId() != a.TransactionID || prepared.GetEnvelope() == nil {
 		return invalid
@@ -53,8 +61,7 @@ func validatePrepared(a Artifact) error {
 	}
 	spec := invocation.GetChaincodeSpec()
 	args := spec.GetInput().GetArgs()
-	command, e := json.Marshal(a.Command)
-	if e != nil || spec.GetChaincodeId().GetName() != "tokansh" || len(args) != 2 || string(args[0]) != "RegisterApprovedProperty" || !bytes.Equal(args[1], command) {
+	if spec.GetChaincodeId().GetName() != "tokansh" || len(args) != 2 || string(args[0]) != function || !bytes.Equal(args[1], command) {
 		return invalid
 	}
 	return nil

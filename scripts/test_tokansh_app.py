@@ -1,5 +1,6 @@
 """Offline process tests: temporary HOME, fake services, no real DB/network calls."""
 import contextlib
+import copy
 import fcntl
 import importlib.util
 import io
@@ -186,6 +187,38 @@ class LifecycleTests(unittest.TestCase):
         fake=self.home/'frontend/node_modules/vite/bin';fake.mkdir(parents=True);(fake/'vite.js').touch()
         with patch.object(app,'configuration',return_value={'TOKANSH_GATEWAY_SECRET':'a'*64}),patch.object(app,'REPO',self.home),patch.object(app,'linux_node',return_value='/test-node'),patch.object(self.supervisor,'owned',return_value={'pid':123}),patch.object(self.supervisor,'wait_health'),patch.object(app,'http_json',return_value={'data':{**app.INFO,'schema_version':True}}):
             with self.assertRaises(app.Failure):self.supervisor.start()
+
+    def check_metadata_start(self, response, accepted):
+        fake=self.home/'frontend/node_modules/vite/bin';fake.mkdir(parents=True,exist_ok=True);(fake/'vite.js').touch()
+        with patch.object(app,'configuration',return_value={'TOKANSH_GATEWAY_SECRET':'a'*64}),patch.object(app,'REPO',self.home),patch.object(app,'linux_node',return_value='/test-node'),patch.object(self.supervisor,'owned',return_value={'pid':123}),patch.object(self.supervisor,'wait_health'),patch.object(app,'http_json',return_value=response),patch.object(self.supervisor,'launch') as launch,patch.object(self.supervisor,'stop_one') as stop:
+            with contextlib.redirect_stdout(io.StringIO()):
+                if accepted:self.supervisor.start()
+                else:
+                    with self.assertRaises(app.Failure):self.supervisor.start()
+            launch.assert_not_called();stop.assert_not_called()
+
+    def test_exact_reviewed_contract_interfaces_start(self):
+        for info in (app.INFO,app.INFO_V11):
+            with self.subTest(functions=len(info['functions'])):
+                self.check_metadata_start({'data':copy.deepcopy(info)},True)
+
+    def test_unreviewed_or_malformed_contract_interfaces_block_start(self):
+        cases=[None,[],{}, {'data':None}, {'data':[]},
+               {'data':app.INFO_V11,'meta':{}}, {'data':{**app.INFO_V11,'extra':'unknown'}}]
+        changes=[('contract','basic'),('contract',1),('schema_version',True),('schema_version',1.0),
+                 ('schema_version','1'),('schema_version',2),('supply_interpretation','MINTED_SUPPLY'),
+                 ('supply_interpretation',None),('functions',None),('functions',[]),
+                 ('functions','IssueANSH'),('functions',tuple(app.INFO_V11['functions'])),
+                 ('functions',app.INFO_V11['functions'][:-1]),
+                 ('functions',app.INFO_V11['functions']+['BurnANSH']),
+                 ('functions',app.INFO_V11['functions'][:-1]+['GetBalance']),
+                 ('functions',list(reversed(app.INFO_V11['functions']))),
+                 ('functions',app.INFO_V11['functions'][:-1]+['getIssuanceOperation'])]
+        cases += [{'data':{**app.INFO_V11,key:value}} for key,value in changes]
+        for key in app.INFO_V11:
+            info=copy.deepcopy(app.INFO_V11);del info[key];cases.append({'data':info})
+        for number,response in enumerate(cases):
+            with self.subTest(case=number):self.check_metadata_start(response,False)
 
 
 if __name__=='__main__':unittest.main()

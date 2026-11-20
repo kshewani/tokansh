@@ -74,3 +74,61 @@ SQL timing root cause. Preserve the five-second evaluation deadline and fail hon
 on expiry; do not add retries. `/ready` remains 503 until business readiness is
 established. A valid business commit must be independently observed during live
 transaction acceptance before claiming that transaction integration works on DRUNIX.
+
+## M4.1 typed issuance extension (implementation; no live submission acceptance)
+
+These routes use the existing private loopback listener, bearer authentication,
+Origin/browser rejection and, for **every POST**, the distinct
+`X-Operator-Capability`. Demo roles grant no authority. No generic invocation API
+is exposed. Existing M3 artifact schemas, routes and signer restrictions remain.
+
+All paths below are under `/v1/tokansh/`:
+
+| Method | Path | Chaincode call / response |
+|---|---|---|
+| GET | `issuance-state/{property_id}` | `GetIssuanceState(property_id)`; exact IssuanceState |
+| GET | `balances/{property_id}/{holder_id}` | `GetBalance(property_id, holder_id)`; exact Balance |
+| GET | `issuance-operations/{operation_id}` | `GetIssuanceOperation(operation_id)`; exact IssuanceOperation (no MSP argument) |
+| POST | `issuances/prepare` | Endorse `IssueANSH(commandJSON)` with Org1MSP and Org2MSP; return IssuanceArtifact; **no submission** |
+| POST | `issuances/submit` | Reconstruct validated issuance artifact and submit once; return SUBMITTED, never commit success |
+| POST | `issuances/commit-status` | Same artifact; reconstruct signed status request using existing identity; no submission |
+
+Prepare body is exactly `{command_version:1, operation_id:UUID, property_id:UUID,
+quantity:integer}`. Quantity is 1..9007199254740991, matching chaincode; no float,
+issuer supplied by client, duplicate/unknown/case-variant fields, or extra arguments
+are accepted. Successful responses retain `{data:...}`. Reads use integer fields
+and explicit schema_version 1, exact identifiers and checked supply arithmetic.
+Chaincode derives inventory holder from registered property and authorizes the
+existing pinned Org1 User1 registration authority. It owns supply enforcement and
+identical/conflicting operation replay; Gateway does not fabricate inventory.
+
+IssuanceArtifact is separate from M3 Artifact: version 1, channel, chaincode,
+signer, function `IssueANSH`, typed command, request_digest, transaction_id,
+transaction/creator (base64), and MAC. The MAC binds the entire artifact; the
+prepared protobuf must match channel, transaction ID, pinned creator, chaincode,
+function and exact canonical command bytes. request_digest is the Gateway's
+canonical-command SHA-256, not the chaincode receipt's principal-bound digest.
+Cross-use with registration artifacts is rejected. Retain the complete original
+artifact and identity/HMAC configuration for recovery; do not edit it.
+
+Evaluation/endorsement bounds remain five seconds, without retries. Exact reviewed
+business errors map to 404 (missing property/operation), 409 (idempotency conflict),
+422 (supply exceeded) or 403 (chaincode authorization); unknown infrastructure or
+unexpected errors remain sanitized. A submit/status RPC failure returns HTTP 503
+with `data.state: UNKNOWN`, the known transaction ID and
+`LEDGER_OUTCOME_UNKNOWN`. Do not infer failure/absence or automatically resubmit.
+Status success returns actual transaction_id/code/block_number/successful; only
+valid commit status, followed by ledger reconciliation, establishes issuance.
+
+**Live issuance remains blocked pending a separately reviewed durable caller.**
+The stateless Gateway neither persists artifacts nor prevents a trusted caller
+from submitting one twice. The existing FastAPI RegistrationService/SQLite CAS is
+registration-only and cannot orchestrate these new artifacts yet. Extend that
+single durable owner (or review a scoped operator equivalent) before live use:
+persist original artifact before submission, record submission intent durably,
+serialize operation attempts, retain UNKNOWN on crashes/timeouts, and recover by
+status/operation reads without blind resubmission. There is no global exactly-once
+claim or second transaction database. The existing registration-only endorsement
+inspection tooling also needs issuance-specific review before the first issuance.
+The running Gateway was not restarted; these new endpoints have only automated
+mock-based acceptance. No issuance, registration or transfer was submitted.

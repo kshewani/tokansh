@@ -59,7 +59,22 @@ func (s *SDK) Prepare(ctx context.Context, c Command) (string, []byte, []byte, e
 	if e != nil {
 		return "", nil, nil, e
 	}
-	p, e := s.gateway.GetNetwork("mychannel").GetContract("tokansh").NewProposal("RegisterApprovedProperty", client.WithArguments(string(b)), client.WithEndorsingOrganizations("Org1MSP", "Org2MSP"))
+	return s.prepareCommand(ctx, "RegisterApprovedProperty", b)
+}
+func (s *SDK) PrepareIssuance(ctx context.Context, c IssuanceCommand) (string, []byte, []byte, error) {
+	if validateIssuance(c) != nil {
+		return "", nil, nil, invalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	b, e := json.Marshal(c)
+	if e != nil {
+		return "", nil, nil, e
+	}
+	return s.prepareCommand(ctx, "IssueANSH", b)
+}
+func (s *SDK) prepareCommand(ctx context.Context, function string, b []byte) (string, []byte, []byte, error) {
+	p, e := s.gateway.GetNetwork("mychannel").GetContract("tokansh").NewProposal(function, client.WithArguments(string(b)), client.WithEndorsingOrganizations("Org1MSP", "Org2MSP"))
 	if e != nil {
 		return "", nil, nil, e
 	}

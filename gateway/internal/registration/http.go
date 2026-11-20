@@ -53,6 +53,13 @@ func Handler(s *Service, operator []byte) http.Handler {
 		path := strings.TrimPrefix(r.URL.Path, "/v1/tokansh/")
 		if r.Method == "GET" {
 			switch {
+			case strings.HasPrefix(path, "issuance-state/"):
+				data, err = s.ReadIssuance(ctx, "GetIssuanceState", strings.TrimPrefix(path, "issuance-state/"))
+			case strings.HasPrefix(path, "balances/"):
+				ids := strings.Split(strings.TrimPrefix(path, "balances/"), "/")
+				data, err = s.ReadIssuance(ctx, "GetBalance", ids...)
+			case strings.HasPrefix(path, "issuance-operations/"):
+				data, err = s.ReadIssuance(ctx, "GetIssuanceOperation", strings.TrimPrefix(path, "issuance-operations/"))
 			case path == "contract-info":
 				data, err = s.Read(ctx, "GetContractInfo", "")
 			case strings.HasPrefix(path, "properties/"):
@@ -78,6 +85,30 @@ func Handler(s *Service, operator []byte) http.Handler {
 				return
 			}
 			switch path {
+			case "issuances/prepare":
+				var c IssuanceCommand
+				c, err = DecodeIssuanceCommand(raw)
+				if err == nil {
+					data, err = s.PrepareIssuance(ctx, c)
+				}
+			case "issuances/submit", "issuances/commit-status":
+				var a IssuanceArtifact
+				err = strict(raw, &a)
+				if err == nil {
+					err = s.CheckIssuance(a)
+				}
+				if err == nil {
+					if path == "issuances/commit-status" {
+						data, err = s.Ledger.Status(ctx, issuanceEnvelope(a))
+					} else {
+						err = s.Ledger.Submit(ctx, issuanceEnvelope(a))
+						data = map[string]string{"state": "SUBMITTED", "transaction_id": a.TransactionID}
+					}
+					if err != nil {
+						respond(503, map[string]any{"data": map[string]string{"state": "UNKNOWN", "transaction_id": a.TransactionID}, "error": map[string]string{"code": "LEDGER_OUTCOME_UNKNOWN", "message": "Outcome unavailable; retain the artifact and reconcile. Do not resubmit."}})
+						return
+					}
+				}
 			case "property-registrations/prepare":
 				var c Command
 				c, err = DecodeCommand(raw)
@@ -108,7 +139,7 @@ func Handler(s *Service, operator []byte) http.Handler {
 		}
 		if err != nil {
 			var readErr *readFailure
-			if r.Method == "GET" && errors.As(err, &readErr) {
+			if (r.Method == "GET" || path == "issuances/prepare") && errors.As(err, &readErr) {
 				respond(readErr.httpStatus, map[string]any{"error": map[string]string{"code": readErr.code, "message": readErr.message}})
 				return
 			}

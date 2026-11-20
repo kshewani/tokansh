@@ -20,6 +20,13 @@ var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var money = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
 var invalid = errors.New("INVALID_REQUEST")
 
+// Exact reviewed interfaces: deployed M3 and its M4.1 extension. Metadata has
+// no lifecycle version field; do not accept arbitrary supersets or subsets.
+func supportedContractFunctions(functions []string) bool {
+	return reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty"}) ||
+		reflect.DeepEqual(functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation"})
+}
+
 // Exact field names, duplicates, nulls and nested unknown fields fail closed.
 func strict(data []byte, target any) error {
 	t := reflect.TypeOf(target).Elem()
@@ -177,7 +184,7 @@ func (s *Service) Read(ctx context.Context, function, id string) (any, error) {
 	case "GetContractInfo":
 		var v ContractInfo
 		e = strict(b, &v)
-		if e != nil || v.Contract != "tokansh" || v.SchemaVersion != 1 || v.SupplyInterpretation != "LIFETIME_CUMULATIVE_ISSUANCE_CEILING" || !reflect.DeepEqual(v.Functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty"}) {
+		if e != nil || v.Contract != "tokansh" || v.SchemaVersion != 1 || v.SupplyInterpretation != "LIFETIME_CUMULATIVE_ISSUANCE_CEILING" || !supportedContractFunctions(v.Functions) {
 			return nil, invalid
 		}
 		return v, nil
