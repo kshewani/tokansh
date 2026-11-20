@@ -35,7 +35,7 @@ export function errorFeedback(error:unknown):string {
  const operationId=typeof error.details?.operation_id==='string'?error.details.operation_id:null;
  return `${error.message} (${error.code}) ${recovery}${operationId?' Operation: '+operationId:''}${error.correlationId?' Reference: '+error.correlationId:''}`;
 }
-export type RequestOptions={method?:'GET'|'POST'|'PUT';body?:unknown;signal?:AbortSignal;idempotencyKey?:string;correlationId?:string};
+export type RequestOptions={method?:'GET'|'POST'|'PUT';body?:unknown;signal?:AbortSignal;idempotencyKey?:string;correlationId?:string;demoRole?:'ISSUER'|'INVESTOR'|'LENDER'};
 
 /** Injectable HTTP boundary; fixtures may be supplied only by isolated tests. */
 export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch,timeoutMs=15000){
@@ -46,6 +46,7 @@ export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch
   const method=opts.method||'GET',isWrite=method!=='GET';
   const headers:Record<string,string>={'Accept':'application/json'};
   if(opts.body!==undefined)headers['Content-Type']='application/json';
+  if(opts.demoRole)headers['X-Demo-Role']=opts.demoRole;
   if(opts.idempotencyKey)headers['Idempotency-Key']=opts.idempotencyKey;
   if(opts.correlationId)headers['X-Correlation-ID']=opts.correlationId;
   let body:string|undefined;

@@ -1,14 +1,16 @@
 import {BarChart3,Building2,CheckCircle2,ChevronRight,FileClock,Landmark,PackageCheck,ShieldAlert,ShoppingCart,Wallet} from 'lucide-react';
 import {Link} from 'react-router-dom';
 import {CartesianGrid,Line,LineChart,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts';
-import {usePreview} from '../app/context';
+import {useApp,usePreview} from '../app/context';
+import {ConnectedPortfolio} from './Investor';
 import {phaseIndex,inr,integer,phases,sample} from '../demo/scenario';
 import {Card,Metric,SectionHeading,EmptyState} from '../components/ui/card';
 import {Status} from '../components/ui/status';
 import {Button} from '../components/ui/button';
 const trend=[{month:'Jun',value:95},{month:'Jul',value:96},{month:'Aug',value:97},{month:'Sep',value:98},{month:'Oct',value:99},{month:'Nov',value:100}];
 function QuickLink({to,label}:{to:string;label:string}){return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;}
-export function Overview(){
+export function Overview(){const {mode}=useApp();return mode==='real'?<ConnectedPortfolio dashboard/>:<PreviewOverview/>;}
+function PreviewOverview(){
  const {role,phase,property,holding,events}=usePreview();
  const isIssuer=role==='ISSUER',isLender=role==='LENDER';
  return <><SectionHeading title={isIssuer?'Platform Overview':isLender?'Financing Overview':'Investor Dashboard'} description="Institutional visibility across asset records, ANSH lifecycle and portfolio activity." action={<QuickLink to={isIssuer?'/registry':isLender?'/lending':'/marketplace'} label={isIssuer?'Property registry':isLender?'Loan applications':'Explore ANSH'}/>}/>
@@ -42,7 +44,8 @@ export function Overview(){
  </div>
  </>;
 }
-export function Portfolio(){
+export function Portfolio(){const {mode}=useApp();return mode==='real'?<ConnectedPortfolio/>:<PreviewPortfolio/>;}
+function PreviewPortfolio(){
  const {holding,phase,entitlement}=usePreview();
  return <><SectionHeading title="Investor Portfolio" description="ANSH economic interests and separate external REIT examples; all values are illustrative."/>
  <div className="grid gap-4 md:grid-cols-3"><Metric label="ANSH owned" value={integer(holding.owned)} description="Not proof of legal land title"/><Metric label="Available ANSH" value={integer(holding.available)} description="Owned minus pledged"/><Metric label="Pledged ANSH" value={integer(holding.pledged)} description="Unavailable to transfer"/></div>

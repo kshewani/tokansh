@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.transfers import TransferGateway, router as transfers_router
 from app.config import Settings, get_settings
 from app.database import Database
 from app.errors import error_response, register_handlers
@@ -38,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                   responses={status: {"model": ErrorEnvelope} for status in [400, 401, 403, 404, 409, 422, 500, 503]})
     app.state.settings, app.state.database = settings, database
     app.state.gateway = GatewayAdapter(settings.drunix_gateway_url, gateway_client)
+    app.state.transfer_gateway = TransferGateway(settings, gateway_client)
     register_handlers(app)
 
     @app.middleware("http")
@@ -63,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                        expose_headers=["X-Correlation-ID"])
     api = APIRouter(prefix="/api/v1")
     api.include_router(properties_router)
+    api.include_router(transfers_router)
     app.include_router(api)
     app.include_router(system_router)
     app.include_router(diagnostic_router)

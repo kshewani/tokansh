@@ -35,7 +35,7 @@ const renderStatus=(overrides={})=>renderToStaticMarkup(h(SystemStatusView,{...p
 test('connected business boundary does not render fixture children; preview renders them unchanged',()=>{
  function Fixture(){return h('div',null,'500 ANSH PREVIEW-001');}
  for(const mode of ['real','preview']){
-  const html=renderToStaticMarkup(h(MemoryRouter,null,h(ConnectedBoundary,{mode,path:'/portfolio',title:'Portfolio'},h(Fixture))));
+  const html=renderToStaticMarkup(h(MemoryRouter,null,h(ConnectedBoundary,{mode,path:'/registry',title:'Registry'},h(Fixture))));
   if(mode==='real'){
    assert.match(html,/not integrated yet/);assert.doesNotMatch(html,/500 ANSH|PREVIEW-001/);
   }else assert.match(html,/500 ANSH PREVIEW-001/);
@@ -70,4 +70,17 @@ test('preview component states never claim a report from a live API',()=>{
  const html=renderStatus({mode:'preview'});
  assert.doesNotMatch(html,/Reported by Python system API/);
  assert.match(html,/No verified integration status returned/);
+});
+
+const {QueryClient,QueryClientProvider}=await import('@tanstack/react-query');
+const {AppProvider}=await import('../src/app/context.tsx');
+const {InvestorProvider}=await import('../src/app/investor.tsx');
+const {ConnectedMarketplace}=await import('../src/pages/Investor.tsx');
+test('connected marketplace renders missing balances without scenario holdings or invented evidence',()=>{
+ const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
+ assert.match(html,/ANSH Marketplace/);assert.match(html,/Authoritative balance unavailable/);
+ assert.match(html,/Simulated payment outcome/);assert.match(html,/Review acquisition/);
+ assert.doesNotMatch(html,/500 ANSH|100,000 ANSH|COMMITTED_VALID|Bearer|TOKANSH_TRANSFER_SECRET/);
+ cache.clear();
 });

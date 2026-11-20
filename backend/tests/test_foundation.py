@@ -146,8 +146,8 @@ def test_production_without_auth_cannot_access_property_workflows(settings, prop
         assert response.json()["error"]["code"] == "AUTH_NOT_CONFIGURED"
 
 
-def test_ledger_operations_are_not_implemented_and_never_fall_back(client):
-    for path in ["/api/v1/ansh/issuances", "/api/v1/ansh/transfers", "/api/v1/collateral/pledges"]:
+def test_unimplemented_ledger_operations_never_fall_back(client):
+    for path in ["/api/v1/ansh/issuances", "/api/v1/collateral/pledges"]:
         response = client.post(path, json={})
         assert response.status_code == 404
         assert "COMMITTED" not in response.text

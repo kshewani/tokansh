@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {ArrowRight,Building2,FileCheck2,FileClock,Info,MapPin,ShieldAlert} from 'lucide-react';
-import {usePreview} from '../app/context';
+import {useApp,usePreview} from '../app/context';
+import {ConnectedMarketplace} from './Investor';
 import {route} from '../api/contracts';
 import type {NewIssuance,NewOrder,NewProperty} from '../api/contracts';
 import {phaseIndex,integer,inr,propertyImage,sample} from '../demo/scenario';
@@ -75,7 +76,8 @@ export function Issuance(){
  <ReviewDialog open={open} onOpenChange={setOpen} title="Review ANSH issuance" description="This request requires authorization, committed property registration and actual DRUNIX transaction finality." onConfirm={async()=>{await submit(route.issuances,payload);setOpen(false);}} busy={submitting} confirmLabel="Submit issuance request"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Quantity" value={integer(quantity)+' ANSH'}/><DataRow label="Issue price" value={inr(sample.unitPrice)}/><DataRow label="Total value" value={inr(quantity*Number(sample.unitPrice))}/></dl></ReviewDialog>
  </>;
 }
-export function Marketplace(){
+export function Marketplace(){const {mode}=useApp();return mode==='real'?<ConnectedMarketplace/>:<PreviewMarketplace/>;}
+function PreviewMarketplace(){
  const {phase,property,holding,submit,submitting}=usePreview();
  const [quantity,setQuantity]=useState(500),[open,setOpen]=useState(false),[showDetails,setShowDetails]=useState(false);
  const listingReady=phaseIndex(phase)>=2;

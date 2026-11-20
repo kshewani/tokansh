@@ -120,3 +120,95 @@ Frontend behavior and Connected Mode business restrictions are unchanged. Local 
 ## M3.3b private transaction foundation
 
 [Private gateway contracts and operator lifecycle](../gateway/TRANSACTIONS.md) describe the implementation. SQLite migration `0002_registration` owns durable ledger operations separately from M2 draft operations. No browser API or Connected Mode business workflow is enabled. Apply migrations explicitly; retain recovery artifacts and credentials until all operations have been reconciled. Real ledger writes and deployment were not performed during this milestone.
+
+## M4.2 supervised investor transfers (local implementation)
+
+The new FastAPI routes use the existing private Gateway and its typed
+`TransferANSH` prepare → submit → commit-status sequence. No new migration is
+needed: `application_operations` stores transfer workflow, simulated settlement,
+operation UUID and the private recovery artifact. Registration's `ledger_operations`
+and M2 property behavior are unchanged. Investor identities remain the predefined
+`DEMO_ACTORS`; there is no investor registry, wallet signing or holder-consent proof.
+The platform's pinned Org1 User1 signs on behalf of these UUID accounts.
+
+Configure existing `DRUNIX_GATEWAY_URL=http://127.0.0.1:8001`,
+`TOKANSH_GATEWAY_SECRET` and `TOKANSH_OPERATOR_SECRET` exclusively on the backend.
+The browser sends no bearer secret or operator capability. FastAPI attaches the
+Gateway bearer and operator capability only to its private Gateway requests.
+`TOKANSH_TRANSFER_SECRET` is not required or used. Never put Gateway credentials
+in Vite configuration, browser storage or Git. Production transfers fail closed.
+Browser-facing routes reuse the existing `X-Demo-Role` selection and actor/ownership
+checks. This spoofable identity mechanism is accepted only for the controlled local
+hackathon demo, not production authentication or proof of holder consent.
+Use the existing persistent, migrated, owner-only SQLite database; preserve its
+backups and recovery artifacts privately.
+
+| Method | Endpoint | Behavior |
+|---|---|---|
+| POST | `/api/v1/ansh/transfers` | Initiate acquisition or secondary transfer |
+| GET | `/api/v1/ansh/transfers/{operation_id}` | Cached workflow details, never artifact bytes |
+| GET | `/api/v1/ansh/transfers/{operation_id}/status` | Same cached status; no Gateway call or mutation |
+| POST | `/api/v1/ansh/transfers/{operation_id}/reconcile` | Commit-status query only; updates SQLite, never resubmits |
+| GET | `/api/v1/ansh/balances/{property_id}/{holder_id}` | Fresh authenticated Gateway balance evaluation |
+
+Transfer initiation and status/reconcile require `X-Demo-Role: INVESTOR` or `ISSUER`
+only; no Authorization header is needed. Initiation additionally
+requires `Idempotency-Key` (1–128 letters/digits/`._:-`). Balance reads require only
+a supported demo role. Existing React origins and demo request headers are unchanged.
+All responses preserve `{data,meta}` and correlation IDs. Example acquisition body:
+
+```json
+{
+  "asset_id": "f6169750-4676-4e99-887f-2bc5471bd518",
+  "from_user_id": "00000000-0000-4000-8000-000000000002",
+  "to_user_id": "00000000-0000-4000-8000-000000000003",
+  "quantity": 4,
+  "kind": "ACQUISITION",
+  "payment_outcome": "SUCCESS"
+}
+```
+
+`asset_id` is the registered property UUID. For acquisition the selected investor
+must be the recipient, and the seller must match the issuer read from DRUNIX.
+For secondary movement use `kind: TRANSFER`, sender equal to the selected demo
+holder, and a different recipient UUID. Example: investor `.003` sends to a
+synthetic holder such as `00000000-0000-4000-8000-000000000005`. Recipient UUIDs do
+not imply registered/KYC-verified users. There is currently only one predefined
+investor login; that investor can acquire and then transfer to another holder.
+Quantity is a positive integer bounded by 9007199254740991; no floating-point
+quantity or monetary calculation is used. Balance precheck is advisory; chaincode
+atomically enforces the final available balance. No pledge model is enabled here.
+
+Payment is always explicitly `simulated: true`; `payment_outcome` defaults to
+SUCCESS. FAILED persists `PAYMENT_FAILED` and never prepares/submits a transaction.
+There is no actual payment processor, price settlement or atomic DvP. Invalid commit
+after simulated success needs manual simulated compensation/review.
+
+Successful response `data` includes `operation_id`, `transaction_id`,
+`state: COMMITTED_VALID`, `ownership_confirmed: true`, request, simulated payment,
+and `commit: {transaction_id, code: 0, block_number, successful: true}` from the
+Gateway's real commit-status response. No transaction IDs or block numbers are
+synthesized by the runtime. Pending/ambiguous initiation returns HTTP 202 with
+`ownership_confirmed: false`, persisted operation ID and transaction ID when known.
+Insufficient balance returns sanitized HTTP 409 `INSUFFICIENT_BALANCE` and the
+operation ID in `error.details`. Only the initiating actor can inspect/reconcile
+its workflow. GET statuses label `status_source: PERSISTED_WORKFLOW`; terminal
+cached evidence is not a fresh ledger reconciliation or current portfolio balance.
+
+A durable unique actor/key claim precedes preparation; the endorsed artifact is
+persisted before a compare-and-set claims `SUBMISSION_PENDING`. The same key/body
+returns the stored workflow without preparing or submitting again; changed payloads
+conflict. SQLite is never authoritative for holdings. PREPARING/PREPARED after a
+process crash requires operator review; this API intentionally has no resume-submit,
+force or retry endpoint. SUBMISSION_PENDING/SUBMITTED/UNKNOWN can only reconcile
+using the stored original artifact. Failed or ambiguous submission is never retried;
+only confirmed valid commit permits `ownership_confirmed`. Keep the same key and
+operation ID; do not create a new key to bypass uncertainty. Local database integrity
+and single supervised operator are trusted, with no global exactly-once claim.
+
+Frontend integration: call this API, retain the key/operation ID, show pending or
+UNKNOWN honestly, use the explicit reconciliation endpoint when needed, and fetch
+balances afresh for portfolios. Disable repeated clicks and do not retry financial
+POSTs automatically. No React screen is enabled by this change. The running backend
+has not been restarted; deployment/configuration needs a separately authorized
+checkpoint. No live transfers were executed during implementation.
