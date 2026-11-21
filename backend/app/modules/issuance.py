@@ -22,7 +22,7 @@ from app.db.types import utcnow
 from app.ledger import executor
 from app.ledger.port import LedgerPort
 from app.ledger.projections import apply_deltas, delta
-from app.modules.common import get_or_404, identity, user_brief
+from app.modules.common import get_or_404, user_brief
 
 router = APIRouter(prefix="/api/v1/ansh/issuances", tags=["ANSH issuance"])
 
@@ -107,6 +107,9 @@ def create_issuance(body: IssuanceIn, request: Request, db: Session = Depends(ge
             raise ApiError(409, "ISSUANCE_LIMIT_EXCEEDED", "Requested issuance exceeds the approved supply.",
                            {"requested_quantity": body.quantity, "approved_supply": prop.approved_supply})
         price = to_minor(body.issue_price, "issue_price") if body.issue_price else prop.proposed_issue_price_minor
+        if price != prop.proposed_issue_price_minor:  # the registered price is immutable on DRUNIX
+            raise ApiError(422, "INVALID_REQUEST", "Issue price must equal the registered issue price.",
+                           {"registered_issue_price": from_minor(prop.proposed_issue_price_minor)})
         iss = db.scalar(sa.select(m.AnshIssuance).filter_by(property_id=prop.id))
         if iss is not None:
             if iss.issuance_status == IssuanceStatus.CONFIRMED:
@@ -120,7 +123,7 @@ def create_issuance(body: IssuanceIn, request: Request, db: Session = Depends(ge
             iss.requested_quantity, iss.issue_price_minor = body.quantity, price
         else:
             iss = m.AnshIssuance(property_id=prop.id, approved_property_ref=prop.approved_property_ref,
-                                 ansh_asset_id=f"ANSH-{prop.approved_property_ref}", issuer_id=prop.issuer_id,
+                                 ansh_asset_id=f"ANSH-{prop.id}", issuer_id=prop.issuer_id,
                                  approved_supply=prop.approved_supply, requested_quantity=body.quantity,
                                  issue_price_minor=price, currency=body.currency)
             db.add(iss)
@@ -132,8 +135,8 @@ def create_issuance(body: IssuanceIn, request: Request, db: Session = Depends(ge
         issuer = db.get(m.User, prop.issuer_id)
         ledger_op = executor.submit_operation(
             db, ledger, settings, op_type=OperationType.ANSH_ISSUANCE, entity_type="issuance", entity_id=iss.id,
-            function="IssueANSH",
-            args=[iss.ansh_asset_id, prop.approved_property_ref, str(body.quantity), identity(issuer)],
+            command=lambda op_id: {"command_version": 1, "operation_id": op_id, "property_id": prop.id,
+                                   "quantity": body.quantity},
             context={"issuance_id": iss.id, "deltas": [delta(issuer.id, owned=body.quantity)]},
             correlation_id=correlation_id(request))
         iss.ledger_operation_id = ledger_op.id

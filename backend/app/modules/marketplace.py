@@ -168,8 +168,10 @@ def submit_transfer(db: Session, ledger: LedgerPort, settings: Settings, *, issu
     entity_id = order_id or str(uuid.uuid4())
     return executor.submit_operation(
         db, ledger, settings, op_type=OperationType.ANSH_TRANSFER,
-        entity_type="purchase_order" if order_id else "ansh_transfer", entity_id=entity_id, function="TransferANSH",
-        args=[issuance.ansh_asset_id, identity(sender), identity(recipient), str(quantity)],
+        entity_type="purchase_order" if order_id else "ansh_transfer", entity_id=entity_id,
+        command=lambda op_id: {"command_version": 1, "operation_id": op_id, "property_id": issuance.property_id,
+                               "from_holder_id": identity(sender), "to_holder_id": identity(recipient),
+                               "quantity": quantity},
         context={"issuance_id": issuance.id, "order_id": order_id, "quantity": quantity,
                  "from_user_id": sender.id, "to_user_id": recipient.id,
                  "from_name": sender.full_name, "to_name": recipient.full_name,

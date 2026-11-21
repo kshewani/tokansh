@@ -1,0 +1,5 @@
+# External manifests/baselines/evidence must never be staged here.
+evidence*/
+preservation.json
+manifest.json
+deployment-context.json

@@ -1,4 +1,4 @@
-import {createContext, useContext, useEffect, useState} from 'react';
+import {createContext, useContext, useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {api, ApiError, newIdempotencyKey, setDemoUser} from '../api/client';
@@ -7,6 +7,7 @@ import type {DemoUser, LedgerOperation, SystemStatus} from '../api/contracts';
 import type {DemoSession, Role} from '../lib/session';
 import {clearDemoSession, readDemoSession, writeDemoSession} from '../lib/session';
 import {shortRef} from '../lib/format';
+import {createSubmitGuard, failureMessage} from '../lib/guard';
 
 export type Message = {kind: 'error' | 'info' | 'success' | 'pending'; text: string} | null;
 type Action = {path: string; body?: unknown; label: string; method?: 'POST' | 'PUT'};
@@ -52,18 +53,26 @@ export function AppProvider({children}: {children: ReactNode}) {
 
   const mutation = useMutation({
     mutationFn: (a: Action) => api(a.path, {method: a.method || 'POST', body: a.body ?? {}, idempotencyKey: newIdempotencyKey()}),
+    retry: false,  // never retry a financial or ledger request automatically
   });
+  const guard = useRef(createSubmitGuard());
 
   async function run<T>(a: Action): Promise<T | null> {
+    if (!guard.current.tryEnter()) {
+      notify({kind: 'info', text: 'A request is already being submitted. Wait for its result.'});
+      return null;
+    }
     try {
       const res = await mutation.mutateAsync(a);
       notify(describe(a.label, res.status, res.data, res.replay));
       return res.data as T;
     } catch (e) {
       const err = e instanceof ApiError ? e : new ApiError(0, 'UNEXPECTED', String(e));
-      notify({kind: 'error', text: `${a.label}: ${err.message} (${err.code})`});
+      notify({kind: err.code === 'LEDGER_OUTCOME_UNKNOWN' ? 'pending' : 'error',
+        text: failureMessage(a.label, err.status, err.code, err.message)});
       return null;
     } finally {
+      guard.current.exit();
       await queryClient.invalidateQueries();
     }
   }

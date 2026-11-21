@@ -12,7 +12,7 @@ from app.core.serial import envelope, iso, paginate
 from app.db import models as m
 from app.db.enums import EventSource, OperationStatus, UserRole
 from app.ledger import executor
-from app.ledger.port import LedgerPort, LedgerUnavailable
+from app.ledger.port import LedgerOutcomeUnknown, LedgerPort, LedgerUnavailable
 from app.modules.common import get_or_404, user_brief
 
 router = APIRouter(prefix="/api/v1", tags=["Audit and ledger"])
@@ -97,12 +97,16 @@ def get_transaction(transaction_id: str, request: Request, db: Session = Depends
     if op is None:
         raise not_found("Ledger transaction", transaction_id)
     data = {"operation": executor.operation_view(op), "live_status": None}
-    try:
-        live = ledger.commit_status(transaction_id)
-        data["live_status"] = {"state": live.state.value, "validation_code": live.validation_code,
-                               "block_number": live.block_number, "source": "DRUNIX_LEDGER"}
-    except LedgerUnavailable as exc:
-        data["live_status"] = {"state": "UNAVAILABLE", "detail": exc.message}
+    artifact = executor.artifact_of(op)
+    if artifact is None:
+        data["live_status"] = {"state": "UNAVAILABLE", "detail": "No prepared transaction stored."}
+    else:
+        try:
+            live = ledger.commit_status(executor.KIND[op.operation_type], artifact)
+            data["live_status"] = {"state": "VALID" if live.successful else "INVALID", "validation_code": live.code,
+                                   "block_number": live.block_number, "source": "DRUNIX_LEDGER"}
+        except (LedgerUnavailable, LedgerOutcomeUnknown) as exc:
+            data["live_status"] = {"state": "UNAVAILABLE", "detail": exc.message}
     return envelope(request, data)
 
 

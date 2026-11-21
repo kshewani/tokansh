@@ -56,6 +56,8 @@ export type Pledge = {
 export type Loan = {
   id: string; borrower: UserBrief; lender: UserBrief; pledge_id: string; principal: string; outstanding: string; currency: string;
   collateral_value: string; ltv_percent: string; max_ltv_percent: string; status: string; simulated: boolean; disbursed_at: string | null;
+  interest_rate_percent: string; term_months: number; interest_quote: string; interest_outstanding: string;
+  total_due: string; total_outstanding: string; interest_method: string;
   assessments: {id: string; decision: string; assessed_ltv_percent: string; assessed_at: string}[];
   repayments: {id: string; amount: string; reference: string; outstanding_after: string; created_at: string}[];
 };

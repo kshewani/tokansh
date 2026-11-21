@@ -21,10 +21,14 @@ python -m scripts.seed_demo          # Meera, Admin, Aarav, Lender + simulated R
 uvicorn app.main:app --reload        # http://localhost:8000/docs
 ```
 
-Configuration comes from environment variables (see `../.env.example`). The important one is
-`DRUNIX_GATEWAY_URL`, the base URL of the Go gateway adapter. **There is no simulator mode.** With the
-variable empty, or the adapter down, every ledger operation fails safely: the operation is recorded as
-`FAILED / LEDGER_UNAVAILABLE`, no transaction id is invented, and ownership does not change.
+Configuration comes from environment variables (see `../.env.example`). Ledger writes go through the
+private TokANSH Go gateway in `../gateway` (set `DRUNIX_GATEWAY_URL=http://127.0.0.1:8001` plus
+`TOKANSH_GATEWAY_SECRET` and `TOKANSH_OPERATOR_SECRET`). How the backend uses it, the command formats
+and what is deployed are in [`../docs/GATEWAY_ADAPTER_CONTRACT.md`](../docs/GATEWAY_ADAPTER_CONTRACT.md).
+**There is no simulator mode.** With the gateway unset or down, every ledger operation fails safely:
+it is recorded as `FAILED / LEDGER_UNAVAILABLE`, nothing is reported as committed, and ownership does
+not change. With DRUNIX running on the same machine, `../scripts/tokansh-app.sh start` launches the
+gateway, this API and the website together (see the root README).
 
 Then start the frontend (`cd ../frontend && npm install && npm run dev`) and open http://localhost:5173.
 Vite forwards `/api` to `http://localhost:8000`.
@@ -36,11 +40,11 @@ Vite forwards `/api` to `http://localhost:8000`.
 | Onboard, submit | `POST /properties`, `/submit` | none (application only) | works |
 | Approve | `POST /properties/{id}/approve` | `RegisterApprovedProperty` | approval saved, registration `FAILED`, retry with `/register` |
 | Issue | `POST /ansh/issuances` | `IssueANSH` | 503 `LEDGER_UNAVAILABLE`, issuance `FAILED` |
-| List, buy | `POST /marketplace/listings`, `/orders` | `GetPosition` (read) | 503, nothing created |
+| List, buy | `POST /marketplace/listings`, `/orders` | `GetBalance` (read) | 503, nothing created |
 | Pay | `POST /payments/simulate` | `TransferANSH` | 503 before any payment is taken |
-| Transfer | `POST /ansh/transfers` | `GetPosition`, `TransferANSH` | 503 |
-| Pledge, release | `POST /collateral/pledges`, `/release` | `PledgeANSH`, `ReleasePledge` | 503 |
-| Loans | `/loans/...` | none (lender simulator) | works once a pledge is active |
+| Transfer | `POST /ansh/transfers` | `GetBalance`, `TransferANSH` | 503 |
+| Pledge, release | `POST /collateral/pledges`, `/release` | `PledgeANSH`, `ReleasePledge` (not in the chaincode yet) | 503 `LEDGER_FUNCTION_UNAVAILABLE` even with DRUNIX |
+| Loans | `/loans/...` | none (lender simulator; fixed-term simple interest, paid interest-first) | works once a pledge is active |
 | Distribution | `/distributions/...` | none: reconstructs record-date holdings from committed operations | works once ANSH is issued |
 | Reconcile | `POST /ledger/operations/{id}/reconcile` | commit status by transaction id | 503 |
 
@@ -70,8 +74,8 @@ app/
 | File | Covers |
 |---|---|
 | `test_api_demo_flow.py` | The 11-step demo of AGENTS.md section 8, end to end over HTTP |
-| `test_api_failures.py` | Failed payment, DRUNIX unavailable, unknown outcome + reconciliation, commit failure + refund, idempotency, supply and role checks, pledge and LTV limits, record-date rule, rounding |
-| `test_gateway_client.py` | Mapping of adapter responses: timeouts are UNKNOWN, unreachable is UNAVAILABLE, a commit without a transaction id is never COMMITTED; the running app never uses a test double |
+| `test_api_failures.py` | Failed payment, chaincode rejection at endorsement, prepared-but-never-submitted, interest, DRUNIX unavailable, unknown outcome + reconciliation, commit failure + refund, idempotency, supply and role checks, pledge and LTV limits, record-date rule, rounding |
+| `test_gateway_client.py` | The client against the private gateway contract: typed routes, both secrets, artifact checks, business-code mapping, submit/status ambiguity, loopback-only configuration; the running app never uses a test double |
 
 These use `tests/fakes/fake_ledger.py`, a **test-only** stand-in whose transaction ids all start
 with `TEST-ONLY-`. They prove application behaviour, not DRUNIX integration (API_CONTRACTS 13).

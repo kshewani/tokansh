@@ -1,0 +1,4 @@
+# Reviewed public signing certificate fixture only; never allow private keys.
+!contract/testdata/org1-user1-public.pem
+/coverage.out
+/tokansh

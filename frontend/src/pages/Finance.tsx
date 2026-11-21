@@ -101,13 +101,16 @@ export function Lending() {
   const [pledgeId, setPledgeId] = useState('');
   const pledge = available.find(p => p.id === pledgeId) ?? available[0];
   const [principal, setPrincipal] = useState('1200000');
+  const [rateBps, setRateBps] = useState(1000);
+  const [termMonths, setTermMonths] = useState(12);
   const [repay, setRepay] = useState('');
   const [action, setAction] = useState<LoanAction | null>(null);
 
   async function confirm() {
     if (!action) return;
-    if (action.kind === 'apply' && pledge) await run({path: route.loanApplications, label: 'Loan application (simulated)', body: {pledge_id: pledge.id, principal, currency: 'INR'}});
-    else if (action.kind === 'repay') await run({path: `${route.loans}/${action.loan.id}/repayments`, label: 'Repayment (simulated)', body: {amount: repay || action.loan.outstanding, currency: 'INR'}});
+    if (action.kind === 'apply' && pledge) await run({path: route.loanApplications, label: 'Loan application (simulated)',
+      body: {pledge_id: pledge.id, principal, currency: 'INR', interest_rate_bps: rateBps, term_months: termMonths}});
+    else if (action.kind === 'repay') await run({path: `${route.loans}/${action.loan.id}/repayments`, label: 'Repayment (simulated)', body: {amount: repay || action.loan.total_outstanding, currency: 'INR'}});
     else if (action.kind !== 'apply') await run({path: `${route.loans}/${action.loan.id}/${action.kind}`, label: `Loan ${action.kind} (simulated)`, body: {}});
     setAction(null);
   }
@@ -116,21 +119,26 @@ export function Lending() {
     <SectionHeading title={isLender ? 'Lender Console' : 'Loan Applications'} description="SIMULATED LENDING: no real credit decision, funds transfer or loan contract. LTV = outstanding ÷ collateral value × 100 (indicative)."/>
     {!isLender && <Card title="Apply for a simulated loan" description="Requires a pledge confirmed on DRUNIX">
       {!available.length ? <EmptyState title="No eligible pledge" description="Pledge ANSH first; each pledge can secure one loan."/> :
-        <form className="grid gap-4 sm:grid-cols-3" onSubmit={e => { e.preventDefault(); if (money.test(principal)) setAction({kind: 'apply'}); }}>
+        <form className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" onSubmit={e => { e.preventDefault(); if (money.test(principal)) setAction({kind: 'apply'}); }}>
           <SelectField label="Pledge" id="loan-pledge" value={pledge?.id} onChange={e => setPledgeId(e.target.value)}>
             {available.map(p => <option key={p.id} value={p.id}>{p.property_name} · {integer(p.quantity)} ANSH · {inr(p.collateral_value)}</option>)}</SelectField>
           <Field label="Principal (INR)" id="loan-principal" inputMode="decimal" value={principal} onChange={e => setPrincipal(e.target.value)}
             error={money.test(principal) ? undefined : 'Up to two decimal places'}/>
+          <SelectField label="Annual rate (illustrative)" id="loan-rate" value={rateBps} onChange={e => setRateBps(Number(e.target.value))}>
+            {[0, 800, 1000, 1200].map(b => <option key={b} value={b}>{b / 100}% simple</option>)}</SelectField>
+          <SelectField label="Term" id="loan-term" value={termMonths} onChange={e => setTermMonths(Number(e.target.value))}>
+            {[6, 12, 24, 36].map(t => <option key={t} value={t}>{t} months</option>)}</SelectField>
           <div className="flex items-end"><Button type="submit" disabled={submitting}>Review application</Button></div>
         </form>}
     </Card>}
     <Card className="mt-5" title={isLender ? 'Loans assigned to you' : 'My loans'} description="All loan records are simulated">
       {loans.isLoading ? <Loading/> : loans.error ? <QueryError error={loans.error}/> : !loans.data?.items.length
         ? <EmptyState title="No loans" description="—"/> : <div className="data-table-wrap"><table className="data-table w-full">
-          <thead><tr><th>Borrower</th><th className="money">Principal</th><th className="money">Outstanding</th><th className="money">Collateral</th><th className="money">LTV</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Borrower</th><th className="money">Principal</th><th className="money">Interest</th><th className="money">Outstanding</th><th className="money">Collateral</th><th className="money">LTV</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>{loans.data.items.map(l => <tr key={l.id}>
             <td>{l.borrower.name}<p className="text-[10px] text-slate-400">lender {l.lender.name}</p></td><td className="money">{inr(l.principal)}</td>
-            <td className="money">{inr(l.outstanding)}</td><td className="money">{inr(l.collateral_value)}</td>
+            <td className="money">{inr(l.interest_quote)}<p className="text-[10px] text-slate-400">{l.interest_rate_percent}% · {l.term_months} mo</p></td>
+            <td className="money">{inr(l.total_outstanding)}<p className="text-[10px] text-slate-400">principal {inr(l.outstanding)}</p></td><td className="money">{inr(l.collateral_value)}</td>
             <td className="money">{l.ltv_percent}%<p className="text-[10px] text-slate-400">max {l.max_ltv_percent}%</p></td>
             <td><Status value={l.status}/><p className="mt-1 text-[10px] text-orange-700">SIMULATED</p></td>
             <td><div className="flex flex-wrap gap-1.5">{isLender ? <>
@@ -138,17 +146,18 @@ export function Lending() {
               {l.status === 'UNDER_REVIEW' && <Button size="sm" onClick={() => setAction({kind: 'approve', loan: l})}>Approve</Button>}
               {['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(l.status) && <Button size="sm" variant="secondary" onClick={() => setAction({kind: 'reject', loan: l})}>Reject</Button>}
               {l.status === 'APPROVED' && <Button size="sm" onClick={() => setAction({kind: 'disburse', loan: l})}>Disburse</Button>}
-            </> : ['ACTIVE', 'PARTIALLY_REPAID'].includes(l.status) && <Button size="sm" onClick={() => { setRepay(l.outstanding); setAction({kind: 'repay', loan: l}); }}>Repay</Button>}</div></td>
+            </> : ['ACTIVE', 'PARTIALLY_REPAID'].includes(l.status) && <Button size="sm" onClick={() => { setRepay(l.total_outstanding); setAction({kind: 'repay', loan: l}); }}>Repay</Button>}</div></td>
           </tr>)}</tbody></table></div>}
     </Card>
     <ReviewDialog open={!!action} onOpenChange={v => !v && setAction(null)} onConfirm={confirm} busy={submitting} confirmLabel="Confirm"
       title={action ? (action.kind === 'apply' ? 'Simulated loan application' : `Simulated loan: ${action.kind}`) : ''}
       description="Lender-simulator workflow. No real money moves.">
-      {action?.kind === 'apply' && <dl><DataRow label="Collateral" value={inr(pledge?.collateral_value)}/><DataRow label="Principal" value={inr(principal)}/></dl>}
-      {action && action.kind !== 'apply' && <dl><DataRow label="Borrower" value={action.loan.borrower.name}/><DataRow label="Outstanding" value={inr(action.loan.outstanding)}/>
+      {action?.kind === 'apply' && <dl><DataRow label="Collateral" value={inr(pledge?.collateral_value)}/><DataRow label="Principal" value={inr(principal)}/>
+        <DataRow label="Terms" value={`${rateBps / 100}% simple interest · ${termMonths} months`}/><DataRow label="Interest and total" value="Calculated by the backend"/></dl>}
+      {action && action.kind !== 'apply' && <dl><DataRow label="Borrower" value={action.loan.borrower.name}/><DataRow label="Outstanding (principal + interest)" value={inr(action.loan.total_outstanding)}/>
         <DataRow label="LTV" value={action.loan.ltv_percent + '%'}/></dl>}
       {action?.kind === 'repay' && <div className="mt-3"><Field label="Repayment amount (INR)" id="repay-amount" inputMode="decimal" value={repay}
-        onChange={e => setRepay(e.target.value)} help="Cannot exceed the outstanding amount"/></div>}
+        onChange={e => setRepay(e.target.value)} help="Applied to interest first, then principal. Cannot exceed the outstanding amount."/></div>}
     </ReviewDialog>
   </>;
 }

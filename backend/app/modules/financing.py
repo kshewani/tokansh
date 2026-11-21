@@ -43,6 +43,15 @@ class LoanIn(BaseModel):
     principal: Amount
     lender_id: str | None = Field(default=None, max_length=36)
     currency: Literal["INR"] = "INR"
+    # Simulated terms: fixed-term simple interest (illustrative 10% for 12 months by default).
+    interest_rate_bps: int = Field(default=1000, ge=0, le=3000)
+    term_months: int = Field(default=12, ge=1, le=36)
+
+
+def interest_quote(principal_minor: int, rate_bps: int, term_months: int) -> int:
+    """principal x rate_bps x months / 120000, rounded half up to the paisa. Integers only."""
+    denominator = 120000
+    return (principal_minor * rate_bps * term_months * 2 + denominator) // (denominator * 2)
 
 
 class DecisionIn(BaseModel):
@@ -85,6 +94,11 @@ def loan_view(db: Session, loan: m.Loan) -> dict:
             "currency": loan.currency, "collateral_value": from_minor(loan.collateral_value_minor),
             "ltv_percent": bps_to_percent(loan.ltv_bps), "max_ltv_percent": bps_to_percent(loan.max_ltv_bps),
             "ltv_is_indicative": True, "interest_rate_percent": bps_to_percent(loan.interest_rate_bps),
+            "term_months": loan.term_months, "interest_quote": from_minor(loan.interest_quote_minor),
+            "interest_outstanding": from_minor(loan.interest_outstanding_minor),
+            "total_due": from_minor(loan.principal_minor + loan.interest_quote_minor),
+            "total_outstanding": from_minor(loan.outstanding_minor + loan.interest_outstanding_minor),
+            "interest_method": "Fixed-term simple interest: principal x rate x months / 12, rounded half up to the paisa.",
             "status": loan.loan_status.value, "simulated": loan.simulation_flag, "source": "LENDER_SIMULATOR",
             "created_at": iso(loan.created_at), "disbursed_at": iso(loan.disbursed_at),
             "assessments": [{"id": a.id, "decision": a.decision.value, "assessed_ltv_percent": bps_to_percent(a.assessed_ltv_bps),
@@ -191,7 +205,9 @@ def create_pledge(body: PledgeIn, request: Request, db: Session = Depends(get_db
         db.commit()
         ledger_op = executor.submit_operation(
             db, ledger, settings, op_type=OperationType.ANSH_PLEDGE, entity_type="pledge", entity_id=p.id,
-            function="PledgeANSH", args=[iss.ansh_asset_id, identity(user), str(body.quantity), p.id],
+            # Proposed PledgeANSH command; the deployed chaincode does not implement it yet.
+            command=lambda op_id: {"command_version": 1, "operation_id": op_id, "property_id": iss.property_id,
+                                   "holder_id": identity(user), "pledge_id": p.id, "quantity": body.quantity},
             context={"issuance_id": iss.id, "pledge_id": p.id, "deltas": [delta(user.id, pledged=body.quantity)]},
             correlation_id=correlation_id(request))
         p.pledge_operation_id = ledger_op.id
@@ -242,7 +258,8 @@ def release_pledge(pledge_id: str, request: Request, db: Session = Depends(get_d
         db.commit()
         ledger_op = executor.submit_operation(
             db, ledger, settings, op_type=OperationType.ANSH_RELEASE, entity_type="pledge", entity_id=p.id,
-            function="ReleasePledge", args=[iss.ansh_asset_id, identity(investor), p.id],
+            command=lambda op_id: {"command_version": 1, "operation_id": op_id, "property_id": iss.property_id,
+                                   "holder_id": identity(investor), "pledge_id": p.id},
             context={"issuance_id": iss.id, "pledge_id": p.id, "deltas": [delta(investor.id, pledged=-p.quantity)]},
             correlation_id=correlation_id(request))
         p.release_operation_id = ledger_op.id
@@ -290,7 +307,10 @@ def apply_loan(body: LoanIn, request: Request, db: Session = Depends(get_db), us
             raise invalid_state("No demonstration lender exists.")
     loan = m.Loan(borrower_id=user.id, lender_id=lender.id, pledge_id=p.id, principal_minor=principal,
                   outstanding_minor=principal, currency=body.currency, collateral_value_minor=p.collateral_value_minor,
-                  ltv_bps=_ltv(principal, p.collateral_value_minor), max_ltv_bps=settings.max_ltv_bps)
+                  ltv_bps=_ltv(principal, p.collateral_value_minor), max_ltv_bps=settings.max_ltv_bps,
+                  interest_rate_bps=body.interest_rate_bps, term_months=body.term_months)
+    loan.interest_quote_minor = interest_quote(principal, body.interest_rate_bps, body.term_months)
+    loan.interest_outstanding_minor = loan.interest_quote_minor
     db.add(loan)
     db.flush()
     audit(db, entity_type="loan", entity_id=loan.id, operation_type="LOAN_REQUESTED", actor_id=user.id,
@@ -397,20 +417,23 @@ def repay_loan(loan_id: str, body: RepaymentIn, request: Request, db: Session = 
         if loan.loan_status not in (LoanStatus.ACTIVE, LoanStatus.PARTIALLY_REPAID):
             raise invalid_state("Loan is not in repayment.", status=loan.loan_status.value)
         amount = to_minor(body.amount, "amount")
-        if amount > loan.outstanding_minor:  # Rule 9.1
+        before = loan.outstanding_minor + loan.interest_outstanding_minor
+        if amount > before:  # Rule 9.1
             raise ApiError(409, "REPAYMENT_EXCEEDS_OUTSTANDING", "Repayment cannot exceed the outstanding amount.",
-                           {"outstanding": from_minor(loan.outstanding_minor), "amount": body.amount})
-        before = loan.outstanding_minor
-        loan.outstanding_minor = before - amount  # Rule 9.2
+                           {"outstanding": from_minor(before), "amount": body.amount})
+        to_interest = min(amount, loan.interest_outstanding_minor)  # interest first, then principal
+        loan.interest_outstanding_minor -= to_interest
+        loan.outstanding_minor -= amount - to_interest  # Rule 9.2
         loan.ltv_bps = _ltv(loan.outstanding_minor, loan.collateral_value_minor)
+        after = loan.outstanding_minor + loan.interest_outstanding_minor
         rep = m.LoanRepayment(loan_id=loan.id, amount_minor=amount, currency=body.currency,
-                              outstanding_before_minor=before, outstanding_after_minor=loan.outstanding_minor,
+                              outstanding_before_minor=before, outstanding_after_minor=after,
                               repayment_reference=f"SIM-REPAY-{uuid.uuid4().hex[:12].upper()}",
                               idempotency_key=f"repay:{loan.id}:{key}"[:128], repayment_status=RepaymentStatus.SUCCESS)
         db.add(rep)
-        _set_loan(db, loan, LoanStatus.REPAID if loan.outstanding_minor == 0 else LoanStatus.PARTIALLY_REPAID,
+        _set_loan(db, loan, LoanStatus.REPAID if after == 0 else LoanStatus.PARTIALLY_REPAID,
                   user.id, correlation_id=correlation_id(request),
-                  detail={"amount": body.amount, "outstanding_after": from_minor(loan.outstanding_minor)})
+                  detail={"amount": body.amount, "to_interest": from_minor(to_interest), "outstanding_after": from_minor(after)})
         db.commit()
         return 200, loan_view(db, loan)
 

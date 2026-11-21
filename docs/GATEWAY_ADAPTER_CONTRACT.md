@@ -1,68 +1,71 @@
-# TokANSH — Go DRUNIX Gateway Adapter: Private HTTP Contract
+# TokANSH — Backend ↔ DRUNIX Gateway Integration
 
-**Status:** Implemented on the Python side (`backend/app/ledger/gateway_client.py`). The Go adapter that serves it is **not built yet**.
-**Scope:** The private interface between FastAPI and the Go adapter (ADR-004, API_CONTRACTS section 9). It is a TokANSH contract, **not a DRUNIX API**. The adapter turns these calls into DRUNIX gateway calls (evaluate, submit, commit status) using the identity, TLS and endpoints of the DRUNIX network, which must be verified against the DRUNIX source and the running network.
+**Status:** The backend uses the private TokANSH Go gateway in [`gateway/`](../gateway/README.md)
+(contract: [`gateway/TRANSACTIONS.md`](../gateway/TRANSACTIONS.md)) and the chaincode in
+[`chaincode/tokansh`](../chaincode/tokansh/README.md). This replaces the generic submit/evaluate
+adapter proposed earlier in this file.
 
-Base URL: `DRUNIX_GATEWAY_URL`. The adapter must never be exposed publicly.
+## 1. Lifecycle used by the backend
 
-## 1. Endpoints
+`backend/app/ledger/executor.py` follows the gateway's once-only pattern:
 
-### `POST /v1/transactions/submit`
+| Step | Ledger operation status | What happens | Ledger effect |
+|---|---|---|---|
+| 1 | `CREATED` | Operation row and exact chaincode command committed before any gateway call | none |
+| 2 | `VALIDATING` | `POST …/prepare`: endorsement; signed artifact and DRUNIX transaction id saved (`ledger_operations.artifact_json`) | none |
+| 3 | `SUBMITTED` | Database compare-and-set claims the single submission, committed **before** `POST …/submit` | may be on ledger |
+| 4 | `COMMITTED` / `FAILED` / `RECONCILIATION_REQUIRED` | `POST …commit-status`; code 0 = valid | final, or reconcile |
 
-```json
-{"channel": "mychannel", "chaincode": "tokansh", "function": "TransferANSH",
- "args": ["ANSH-TECHPARK-ONE-1A2B3C4D", "meera", "aarav", "500"],
- "operation_id": "uuid", "correlation_id": "uuid"}
-```
+Prepare failures are definitive (no ledger effect). A refused connection on submit means the artifact
+was not delivered. Any other submit or status failure is `RECONCILIATION_REQUIRED`; reconciliation
+re-queries commit status with the saved artifact and never resubmits. An operation left in
+`VALIDATING` (process stopped before the claim) reconciles to `FAILED / LEDGER_NOT_SUBMITTED`.
 
-Response (any HTTP status; the body decides):
+## 2. Functions and commands
 
-```json
-{"state": "COMMIT_CONFIRMED", "transaction_id": "<as returned by DRUNIX>", "block_number": 42,
- "validation_code": "VALID", "result": {}, "error": null}
-```
+| Business step | Gateway routes (`/v1/tokansh/`) | Chaincode command (v1) | Status |
+|---|---|---|---|
+| Register approved property | `property-registrations/prepare`, `…/submit`, `commit-status` | `command_version, operation_id, property_id, issuer_id, approval_reference, approval_digest, approved_supply, issue_price_minor, currency` | Deployed (v1.0+) |
+| Issue ANSH | `issuances/prepare`, `…/submit`, `…/commit-status` | `command_version, operation_id, property_id, quantity` | Deployed v1.1 |
+| Transfer / purchase | `transfers/prepare`, `…/submit`, `…/commit-status` | `command_version, operation_id, property_id, from_holder_id, to_holder_id, quantity` | Chaincode v1.2, **not yet deployed** |
+| Balance check | `GET balances/{property_id}/{holder_id}` | `GetBalance` | Deployed v1.1 |
+| Readiness | `GET contract-info` | `GetContractInfo` | Deployed |
+| Pledge | none yet | proposed: `command_version, operation_id, property_id, holder_id, pledge_id, quantity` | **Not implemented**: returns `LEDGER_FUNCTION_UNAVAILABLE` |
+| Release pledge | none yet | proposed: `command_version, operation_id, property_id, holder_id, pledge_id` | **Not implemented** |
 
-| `state` | Meaning | Backend action |
-|---|---|---|
-| `NOT_SUBMITTED` | Definitively never ordered (endorsement refused, bad request) | `FAILED`, `error.code` kept (business codes become 409) |
-| `SUBMITTED` | Ordered; commit not yet observed | Polls `/status`; still unknown -> `RECONCILIATION_REQUIRED` |
-| `COMMIT_CONFIRMED` | Committed and valid | `COMMITTED`, projections updated |
-| `COMMIT_FAILED` | Committed as invalid | `FAILED` (`LEDGER_COMMIT_FAILED`) |
-| `UNKNOWN` | Outcome cannot be established | `RECONCILIATION_REQUIRED`, never resubmitted |
+Identifiers on the ledger are application UUIDs: the property id is the approved property reference,
+and holder ids are user ids. One pinned service identity (Org1 User1) signs every transaction on
+behalf of these accounts (platform-mediated custody; not holder signatures). `approval_reference` is
+the property review id and `approval_digest` is the SHA-256 of the off-chain approval record.
 
-The Python client also treats a timeout or an unreadable response as `UNKNOWN`, and a refused connection as "not submitted". `COMMIT_CONFIRMED` without a `transaction_id` is treated as `UNKNOWN`.
+Until the chaincode records pledges, `GetBalance` has no pledged quantity, so the backend treats
+ledger-pledged units as 0 and pledges fail safely. The rule "pledged units cannot be transferred"
+needs `PledgeANSH`/`ReleasePledge` with an available-balance check in `TransferANSH`.
 
-### `GET /v1/transactions/{transaction_id}/status?channel=...`
+## 3. Configuration (backend)
 
-Same body shape as submit. Used for polling and reconciliation.
+| Variable | Value |
+|---|---|
+| `DRUNIX_GATEWAY_URL` | Loopback literal only, e.g. `http://127.0.0.1:8001` |
+| `TOKANSH_GATEWAY_SECRET`, `TOKANSH_OPERATOR_SECRET` | The same two distinct 64-hex secrets as the gateway process |
+| `DRUNIX_SIGNER` | Optional pin `Org1MSP:<sha256 of signer certificate>`; artifacts must match |
+| `DRUNIX_GATEWAY_TIMEOUT_SECONDS` | Default 7 |
 
-### `POST /v1/transactions/evaluate`
+The backend holds the operator capability so the UI's Approve, Issue, Buy and Transfer actions can
+submit. That is a deliberate local-demo choice; the team may instead keep writes as operator steps.
 
-`{"channel", "chaincode", "function", "args"}` -> `{"result": {...}}` or `{"error": {"code", "message"}}`.
+The gateway accepts only loopback calls, so the API, gateway and DRUNIX must run on one machine
+(`scripts/tokansh-app.sh` starts the gateway, API and website together). Hosted on Render without a
+gateway, every ledger step returns `LEDGER_UNAVAILABLE`.
 
-### `GET /health`
+## 4. Error mapping
 
-`{"status": "CONNECTED" | "DEGRADED" | "UNAVAILABLE", "detail": "..."}`. Reports real gateway connectivity, not just that the adapter process is up.
-
-## 2. Chaincode functions the backend calls
-
-Proposed TokANSH chaincode (DRUNIX_INTEGRATION 6.2). Arguments are strings, in this order.
-
-| Function | Args | Must enforce |
-|---|---|---|
-| `RegisterApprovedProperty` | propertyRef, issuerIdentity, approvedSupply | unique reference |
-| `IssueANSH` | assetId, propertyRef, quantity, issuerIdentity | property registered; quantity <= approved supply; one issuance per asset |
-| `TransferANSH` | assetId, fromIdentity, toIdentity, quantity | quantity <= owned - pledged (at execution time) |
-| `PledgeANSH` | assetId, ownerIdentity, quantity, pledgeId | quantity <= available; unique pledgeId |
-| `ReleasePledge` | assetId, ownerIdentity, pledgeId | pledge exists and is active |
-| `GetPosition` (evaluate) | assetId, ownerIdentity | returns `{"owned": int, "pledged": int}`; unknown position = zero or error `POSITION_NOT_FOUND` |
-
-Business rejections should use the error codes `INSUFFICIENT_AVAILABLE_ANSH`, `PLEDGED_UNITS_RESTRICTED`, `ISSUANCE_LIMIT_EXCEEDED`, `PROPERTY_NOT_APPROVED` and `INVALID_OPERATION_STATE`, so the API can report them as 409.
-
-## 3. Open points to verify against DRUNIX
-
-1. The Go gateway client API and versions in the DRUNIX repository (`drunix-network/asset-transfer-basic/application-gateway-go`).
-2. Whether submit returns after commit (Fabric-style `Submit`) or needs a separate commit-status wait.
-3. How to obtain the block number for a transaction.
-4. Identity model: one custodial client identity with owner references in arguments (assumed here) or per-user identities.
-5. Whether `operation_id` can be passed to the chaincode for duplicate detection.
+| Gateway | Backend API |
+|---|---|
+| 409 `INSUFFICIENT_BALANCE` | 409 `INSUFFICIENT_AVAILABLE_ANSH` |
+| 422 `ISSUANCE_LIMIT_EXCEEDED` | 409 `ISSUANCE_LIMIT_EXCEEDED` |
+| 409 `IDEMPOTENCY_CONFLICT` | 409 `IDEMPOTENCY_CONFLICT` |
+| 404 `PROPERTY_NOT_FOUND` (prepare) | 409 `PROPERTY_NOT_APPROVED` |
+| 503 `LEDGER_UNAVAILABLE`, 504 `LEDGER_TIMEOUT` on prepare | 503, operation `FAILED` (no ledger effect) |
+| Any failure after submission | 202, operation `RECONCILIATION_REQUIRED` |
+| Commit status code ≠ 0 | 502 `LEDGER_COMMIT_FAILED` |

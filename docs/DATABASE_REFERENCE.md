@@ -336,6 +336,7 @@ reconciled by transaction id instead of being blindly retried (ADR-011).
 | `function_name` | varchar(64) | yes |  |  |
 | `request_hash` | varchar(64) | yes |  |  |
 | `request_payload` | varchar(None) | yes |  |  |
+| `artifact_json` | varchar(None) | yes |  |  |
 | `transaction_id` | varchar(128) | yes |  |  |
 | `drunix_network_reference` | varchar(128) | yes |  |  |
 | `status` | enum `OperationStatus` | no | `CREATED` |  |
@@ -487,6 +488,9 @@ Simulated financing backed by a pledge (DOMAIN_MODEL 2.12). Principal-only in th
 | `principal_minor` | bigint | no |  | paise |
 | `outstanding_minor` | bigint | no |  | paise |
 | `interest_rate_bps` | integer | no | `0` | basis points |
+| `term_months` | integer | no | `12` |  |
+| `interest_quote_minor` | bigint | no | `0` | paise |
+| `interest_outstanding_minor` | bigint | no | `0` | paise |
 | `currency` | varchar(3) | no | `INR` |  |
 | `collateral_value_minor` | bigint | no |  | paise |
 | `ltv_bps` | integer | no |  | basis points |
@@ -505,12 +509,15 @@ Rules enforced by the database:
 - `ck_loans_collateral_positive`: `collateral_value_minor > 0`
 - `ck_loans_currency_iso`: `length(currency) = 3 AND currency = upper(currency)`
 - `ck_loans_interest_non_negative`: `interest_rate_bps >= 0`
+- `ck_loans_interest_outstanding_in_range`: `interest_outstanding_minor >= 0 AND interest_outstanding_minor <= interest_quote_minor`
+- `ck_loans_interest_quote_non_negative`: `interest_quote_minor >= 0`
 - `ck_loans_ltv_non_negative`: `ltv_bps >= 0`
 - `ck_loans_max_ltv_in_range`: `max_ltv_bps > 0 AND max_ltv_bps <= 10000`
 - `ck_loans_mvp_loans_are_simulated`: `simulation_flag = 1`
 - `ck_loans_outstanding_in_range`: `outstanding_minor >= 0 AND outstanding_minor <= principal_minor`
 - `ck_loans_principal_positive`: `principal_minor > 0`
 - `ck_loans_repaid_means_zero`: `loan_status <> 'REPAID' OR outstanding_minor = 0`
+- `ck_loans_term_in_range`: `term_months >= 1 AND term_months <= 36`
 
 Indexes: `ix_loans_borrower_id` (borrower_id); `ix_loans_lender_id` (lender_id); `ix_loans_loan_status` (loan_status).
 

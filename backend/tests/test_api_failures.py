@@ -9,7 +9,7 @@ from tests.test_api_demo_flow import AARAV, MEERA, P, TECHPARK, buy, data, holdi
 
 
 def transfers_sent(ledger):
-    return [c for c in ledger.calls if c[0] == "TransferANSH"]
+    return [k for k in ledger.submitted if k == "transfer"]
 
 
 def test_failed_payment_never_transfers(people, ledger):
@@ -19,7 +19,7 @@ def test_failed_payment_never_transfers(people, ledger):
     o = data(people["aarav"].get(f"{P}/marketplace/orders/{order['id']}"))
     assert o["status"] == "PAYMENT_FAILED" and o["payments"][0]["status"] == "FAILED" and o["transfer"] is None
     assert transfers_sent(ledger) == [] and holding(people) is None
-    assert ledger.balance(iss["ansh_asset_id"], "aarav") == (0, 0)
+    assert ledger.balance(iss["property_id"], AARAV) == (0, 0)
 
 
 def test_ledger_unavailable_fails_safely_and_can_retry(people, ledger):
@@ -43,7 +43,7 @@ def test_ledger_unavailable_fails_safely_and_can_retry(people, ledger):
 
     ledger.available = True
     assert data(meera.post(f"{P}/properties/{prop['id']}/register"), 200)["ledger"]["registered"] is True
-    ledger.next_outcome["IssueANSH"] = "UNAVAILABLE"
+    ledger.next_outcome["issuance"] = "UNAVAILABLE"
     r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 100000})
     assert r.status_code == 503
     iss = data(meera.get(f"{P}/ansh/issuances"))["items"][0]
@@ -55,7 +55,7 @@ def test_ledger_unavailable_fails_safely_and_can_retry(people, ledger):
 
 def test_unknown_outcome_is_reconciled_not_resubmitted(people, ledger):
     _, iss, listing = setup_issued(people)
-    ledger.next_outcome["TransferANSH"] = "UNKNOWN"
+    ledger.next_outcome["transfer"] = "SUBMIT_UNKNOWN"
     order, resp = buy(people, listing)
     assert resp.status_code == 202
     o = data(resp)
@@ -77,7 +77,7 @@ def test_unknown_outcome_is_reconciled_not_resubmitted(people, ledger):
 
 def test_commit_failure_after_payment_records_refund(people, ledger):
     _, iss, listing = setup_issued(people)
-    ledger.next_outcome["TransferANSH"] = "COMMIT_FAILED"
+    ledger.next_outcome["transfer"] = "COMMIT_FAILED"
     order, resp = buy(people, listing)
     assert resp.status_code == 502 and resp.json()["error"]["code"] == "LEDGER_COMMIT_FAILED"
     o = data(people["aarav"].get(f"{P}/marketplace/orders/{order['id']}"))
@@ -169,3 +169,81 @@ def test_allocation_reconciles_exactly():
     assert allocate(100_000_000, {"meera": 99_500, "aarav": 500})["aarav"] == (500_000, 0)
     odd = allocate(1_000_001, {"x": 3, "y": 7, "z": 11})
     assert sum(a for a, _ in odd.values()) == 1_000_001
+
+
+# ---------------------------------------------------------------- 3-step lifecycle (prepare / submit / status)
+
+def test_prepare_rejection_is_definitive_and_reports_business_code(people, ledger):
+    meera = people["meera"]
+    prop = data(meera.post(f"{P}/properties", TECHPARK), 201)
+    meera.post(f"{P}/properties/{prop['id']}/submit")
+    meera.post(f"{P}/properties/{prop['id']}/approve", {})
+    ledger.next_outcome["issuance"] = "REJECT:ISSUANCE_LIMIT_EXCEEDED"
+    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 100000})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "ISSUANCE_LIMIT_EXCEEDED"
+    assert ledger.submitted.count("issuance") == 0  # refused at endorsement: nothing submitted
+
+
+def test_status_unknown_after_submit_needs_reconciliation(people, ledger):
+    _, iss, listing = setup_issued(people)
+    ledger.next_outcome["transfer"] = "STATUS_UNKNOWN"
+    order, resp = buy(people, listing)
+    assert resp.status_code == 202 and data(resp)["status"] == "RECONCILIATION_REQUIRED"
+    assert data(resp)["transfer"]["ledger_transaction_id"].startswith("TEST-ONLY-")
+    ledger.hide_status = False
+    op_id = data(resp)["transfer"]["operation_id"]
+    assert data(people["meera"].post(f"{P}/ledger/operations/{op_id}/reconcile"), 200)["status"] == "COMMITTED"
+    assert ledger.submitted.count("transfer") == 1
+
+
+def test_registration_command_matches_the_chaincode_contract(people, ledger):
+    meera = people["meera"]
+    prop = data(meera.post(f"{P}/properties", TECHPARK), 201)
+    meera.post(f"{P}/properties/{prop['id']}/submit")
+    seen = {}
+    real_prepare = ledger.prepare
+
+    def spy(kind, command):
+        seen[kind] = command
+        return real_prepare(kind, command)
+    ledger.prepare = spy
+    approved = data(meera.post(f"{P}/properties/{prop['id']}/approve", {}), 200)
+    cmd = seen["registration"]
+    assert list(cmd) == ["command_version", "operation_id", "property_id", "issuer_id", "approval_reference",
+                         "approval_digest", "approved_supply", "issue_price_minor", "currency"]
+    review = data(meera.get(f"{P}/properties/{prop['id']}"))["reviews"][0]
+    assert cmd["property_id"] == prop["id"] and cmd["issuer_id"] == MEERA and cmd["approval_reference"] == review["id"]
+    assert len(cmd["approval_digest"]) == 64 and cmd["issue_price_minor"] == "1000000" and cmd["approved_supply"] == 100000
+    assert approved["ledger"]["approved_property_ref"] == prop["id"]
+
+
+def test_prepared_but_never_submitted_is_closed_without_resubmitting(api, people, ledger):
+    from sqlalchemy.orm import Session
+    from app.db import models as m
+    from app.db.enums import OperationStatus, OperationType
+    with Session(api.app.state.engine) as db:
+        op = m.LedgerOperation(operation_type=OperationType.ANSH_TRANSFER, entity_type="ansh_transfer", entity_id="x",
+                               idempotency_key="k-crash", status=OperationStatus.VALIDATING, transaction_id="TEST-ONLY-crash",
+                               artifact_json='{"transaction_id":"TEST-ONLY-crash"}')
+        db.add(op)
+        db.commit()
+        op_id = op.id
+    r = data(people["meera"].post(f"{P}/ledger/operations/{op_id}/reconcile"), 200)
+    assert r["status"] == "FAILED" and r["error_code"] == "LEDGER_NOT_SUBMITTED" and r["ledger_transaction_id"] is None
+    assert ledger.calls == []  # no gateway call at all
+
+
+def test_issue_price_cannot_differ_from_registered_price(people, ledger):
+    meera = people["meera"]
+    prop = data(meera.post(f"{P}/properties", TECHPARK), 201)
+    meera.post(f"{P}/properties/{prop['id']}/submit")
+    meera.post(f"{P}/properties/{prop['id']}/approve", {})
+    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 10, "issue_price": "9000.00"})
+    assert r.status_code == 422
+
+
+def test_interest_quote_rounds_half_up_and_is_paid_first():
+    from app.modules.financing import interest_quote
+    assert interest_quote(120000000, 1000, 12) == 12000000           # Rs 12,00,000 at 10% for a year = Rs 1,20,000
+    assert interest_quote(100, 1, 1) == 0 and interest_quote(600000, 1, 1) == 5  # 0.5 paisa rounds up
+    assert interest_quote(100000, 0, 36) == 0

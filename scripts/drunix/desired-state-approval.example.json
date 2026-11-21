@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "organization": "Org1MSP",
+  "channel": "mychannel",
+  "chaincode": "tokansh",
+  "version": "1.1",
+  "sequence": 2,
+  "package_id": "tokansh_1.1:REPLACE-reviewed-package-sha256",
+  "context_sha256": "REPLACE-reviewed-upgrade-context-sha256",
+  "deployment_id": "REPLACE-reviewed-deployment-id",
+  "acknowledgement": "I authorize one attempt to establish the reviewed TokANSH version 1.1 sequence-2 approval for this organization, including replacement or repair of an existing uncommitted approval.",
+  "maintenance_acknowledgement": "I confirm an operator-controlled maintenance window on mychannel with no competing lifecycle operators or known in-flight lifecycle operations."
+}

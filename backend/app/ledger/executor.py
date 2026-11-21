@@ -1,12 +1,17 @@
 """Ledger operation lifecycle (API_CONTRACTS section 8, ADR-011, Rules 6.3 and 6.4).
 
-1. The LedgerOperation row is written and committed BEFORE submission.
-2. The adapter result is mapped to an application state. Nothing becomes
-   COMMITTED without a DRUNIX transaction id and confirmed commit status.
-3. An ambiguous outcome is never retried blindly: the operation moves to
-   RECONCILIATION_REQUIRED and a ReconciliationCase is opened.
-4. Domain effects (projections, workflow states) run through handlers that each
-   module registers, the same way for the first attempt and for reconciliation.
+Follows the private gateway's once-only pattern (gateway/TRANSACTIONS.md):
+
+1. CREATED      the operation and its exact command are committed BEFORE any gateway call.
+2. VALIDATING   prepared: endorsed, signed artifact and DRUNIX transaction id saved.
+                No ledger effect yet; never submitted.
+3. SUBMITTED    claimed by a compare-and-set in the database, committed BEFORE submission.
+                From here the transaction may be on the ledger.
+4. COMMITTED / FAILED from the commit status, or RECONCILIATION_REQUIRED when unknown.
+
+An ambiguous outcome is never resubmitted; it is reconciled by commit status
+using the saved artifact. Domain effects run through handlers that each module
+registers, identically for the first attempt and for reconciliation.
 """
 import hashlib
 import json
@@ -24,17 +29,22 @@ from app.db import models as m
 from app.db.base import new_id
 from app.db.enums import OperationStatus, OperationType, ReconciliationStatus
 from app.db.types import utcnow
-from app.ledger.port import LedgerPort, LedgerResult, LedgerUnavailable, SubmissionState
+from app.ledger.port import (FUNCTIONS, CommitStatus, LedgerOutcomeUnknown, LedgerPort, LedgerRejected,
+                             LedgerUnavailable)
 
 log = logging.getLogger("tokansh.ledger")
 
 Handler = Callable[[Session, m.LedgerOperation], None]
+CommandBuilder = Callable[[str], dict]
 
 # Chaincode rejections that are business rule violations, reported as 409 with the same code.
 BUSINESS_CODES = {"INSUFFICIENT_AVAILABLE_ANSH", "PLEDGED_UNITS_RESTRICTED", "ISSUANCE_LIMIT_EXCEEDED",
-                  "PROPERTY_NOT_APPROVED", "INVALID_OPERATION_STATE", "INVALID_REQUEST"}
+                  "PROPERTY_NOT_APPROVED", "INVALID_OPERATION_STATE", "INVALID_REQUEST", "IDEMPOTENCY_CONFLICT"}
 PENDING = {OperationStatus.CREATED, OperationStatus.VALIDATING, OperationStatus.SUBMITTED,
            OperationStatus.UNKNOWN, OperationStatus.RECONCILIATION_REQUIRED}
+KIND = {OperationType.APPROVED_PROPERTY_REGISTRATION: "registration", OperationType.ANSH_ISSUANCE: "issuance",
+        OperationType.ANSH_TRANSFER: "transfer", OperationType.ANSH_PLEDGE: "pledge",
+        OperationType.ANSH_RELEASE: "release"}
 
 
 @dataclass
@@ -60,82 +70,102 @@ def payload_of(op: m.LedgerOperation) -> dict:
     return json.loads(op.request_payload) if op.request_payload else {}
 
 
+def artifact_of(op: m.LedgerOperation) -> dict | None:
+    return json.loads(op.artifact_json) if op.artifact_json else None
+
+
+def _fail(op: m.LedgerOperation, code: str, message: str) -> None:
+    op.status = OperationStatus.FAILED
+    op.error_code = code
+    op.error_message = message[:500]
+
+
+def _unresolved(db: Session, op: m.LedgerOperation, message: str, order_id: str | None) -> None:
+    op.status = OperationStatus.RECONCILIATION_REQUIRED
+    op.error_code = "LEDGER_OUTCOME_UNKNOWN"
+    op.error_message = message[:500]
+    db.add(m.ReconciliationCase(ledger_operation_id=op.id, order_id=order_id,
+                                reason=f"{op.operation_type.value} outcome unknown: {message}"[:300]))
+
+
+def _apply_status(op: m.LedgerOperation, status: CommitStatus) -> None:
+    op.transaction_id = op.transaction_id or status.transaction_id
+    op.block_number = status.block_number
+    op.validation_code = str(status.code)
+    if status.successful:
+        op.status = OperationStatus.COMMITTED
+        op.confirmed_at = utcnow()
+        op.error_code = op.error_message = None
+    else:
+        _fail(op, "LEDGER_COMMIT_FAILED", f"Transaction committed as invalid (validation code {status.code}).")
+
+
 def submit_operation(db: Session, ledger: LedgerPort, settings: Settings, *, op_type: OperationType,
-                     entity_type: str, entity_id: str, function: str, args: list[str],
+                     entity_type: str, entity_id: str, command: CommandBuilder,
                      context: dict | None = None, correlation_id: str | None = None,
                      order_id: str | None = None) -> m.LedgerOperation:
+    """Run one ledger write. ``command(operation_id)`` builds the exact chaincode command."""
+    kind = KIND[op_type]
     op_id = new_id()
-    payload = {"function": function, "args": args, **(context or {})}
+    cmd = command(op_id)
+    payload = {"kind": kind, "function": FUNCTIONS[kind], "command": cmd, **(context or {})}
     op = m.LedgerOperation(
         id=op_id, operation_type=op_type, entity_type=entity_type, entity_id=entity_id, idempotency_key=op_id,
         correlation_id=correlation_id, channel=settings.drunix_channel, chaincode=settings.drunix_chaincode,
-        function_name=function, request_payload=json.dumps(payload, sort_keys=True),
-        request_hash=hashlib.sha256(json.dumps(args).encode()).hexdigest(), status=OperationStatus.CREATED)
+        function_name=FUNCTIONS[kind], request_payload=json.dumps(payload, sort_keys=True),
+        request_hash=hashlib.sha256(json.dumps(cmd, separators=(",", ":")).encode()).hexdigest(),
+        status=OperationStatus.CREATED)
     db.add(op)
-    db.commit()  # write-before-submit: the intent survives a crash during submission
+    db.commit()  # 1. intent survives a crash before any gateway call
 
-    op.status = OperationStatus.VALIDATING
     op.attempt_count += 1
-    op.submitted_at = utcnow()
-    try:
-        result = ledger.submit(function=function, args=args, operation_id=op_id, correlation_id=correlation_id)
+    try:  # 2. prepare (endorse): no ledger effect, so every failure here is definitive
+        artifact = ledger.prepare(kind, cmd)
+    except LedgerRejected as exc:
+        _fail(op, exc.code, exc.message)
     except LedgerUnavailable as exc:
-        # Connection was never established: the transaction definitively did not reach DRUNIX.
-        op.status = OperationStatus.FAILED
-        op.error_code = "LEDGER_UNAVAILABLE"
-        op.error_message = exc.message[:500]
-        log.warning("ledger unavailable for %s %s: %s", op_type, op_id, exc.message)
+        _fail(op, "LEDGER_UNAVAILABLE" if exc.code == "LEDGER_NOT_CONFIGURED" else exc.code, exc.message)
+        log.warning("ledger prepare unavailable for %s %s: %s", op_type.value, op_id, exc.message)
     else:
-        _apply(db, ledger, settings, op, result, poll=True, order_id=order_id)
+        op.artifact_json = json.dumps(artifact, separators=(",", ":"))
+        op.transaction_id = artifact["transaction_id"]
+        op.status = OperationStatus.VALIDATING
+        db.commit()
+        # 3. claim the single submission before sending anything
+        claimed = db.execute(sa.update(m.LedgerOperation).where(
+            m.LedgerOperation.id == op_id, m.LedgerOperation.status == OperationStatus.VALIDATING
+        ).values(status=OperationStatus.SUBMITTED, submitted_at=utcnow())).rowcount
+        db.commit()
+        db.refresh(op)
+        if claimed != 1:
+            raise ApiError(409, "RECONCILIATION_REQUIRED", "Submission was already claimed; reconcile, do not retry.")
+        _submit_and_confirm(db, ledger, settings, op, kind, artifact, order_id)
     op.observed_at = utcnow()
     _settle(db, op)
     db.commit()
     return op
 
 
-def _apply(db: Session, ledger: LedgerPort, settings: Settings, op: m.LedgerOperation, result: LedgerResult,
-           *, poll: bool, order_id: str | None = None) -> None:
-    if result.transaction_id and not op.transaction_id:
-        op.transaction_id = result.transaction_id
-    op.validation_code = result.validation_code or op.validation_code
-    if result.block_number is not None:
-        op.block_number = result.block_number
-
-    state = result.state
-    if state == SubmissionState.COMMIT_CONFIRMED and not op.transaction_id:
-        state = SubmissionState.UNKNOWN  # never record a commit without DRUNIX evidence
-        result.error_message = "Adapter reported a commit without a transaction id."
-
-    if state == SubmissionState.COMMIT_CONFIRMED:
-        op.status = OperationStatus.COMMITTED
-        op.confirmed_at = utcnow()
-        op.error_code = op.error_message = None
-    elif state == SubmissionState.COMMIT_FAILED:
-        op.status = OperationStatus.FAILED
-        op.error_code = result.error_code or "LEDGER_COMMIT_FAILED"
-        op.error_message = (result.error_message or "Transaction was invalidated at commit.")[:500]
-    elif state == SubmissionState.NOT_SUBMITTED:
-        op.status = OperationStatus.FAILED
-        op.error_code = result.error_code or "LEDGER_SUBMISSION_FAILED"
-        op.error_message = (result.error_message or "Transaction was not accepted by the ledger.")[:500]
-    else:  # SUBMITTED or UNKNOWN
-        op.status = OperationStatus.SUBMITTED if op.transaction_id else OperationStatus.UNKNOWN
-        if poll and op.transaction_id:
-            for _ in range(max(settings.commit_poll_attempts, 0)):
-                if settings.commit_poll_interval_seconds:
-                    time.sleep(settings.commit_poll_interval_seconds)
-                try:
-                    status = ledger.commit_status(op.transaction_id)
-                except LedgerUnavailable:
-                    break
-                if status.state in (SubmissionState.COMMIT_CONFIRMED, SubmissionState.COMMIT_FAILED):
-                    _apply(db, ledger, settings, op, status, poll=False)
-                    return
-        op.status = OperationStatus.RECONCILIATION_REQUIRED
-        op.error_code = "LEDGER_OUTCOME_UNKNOWN"
-        op.error_message = (result.error_message or "Commit outcome could not be established.")[:500]
-        db.add(m.ReconciliationCase(ledger_operation_id=op.id, order_id=order_id,
-                                    reason=f"{op.operation_type} outcome unknown: {op.error_message}"[:300]))
+def _submit_and_confirm(db: Session, ledger: LedgerPort, settings: Settings, op: m.LedgerOperation, kind: str,
+                        artifact: dict, order_id: str | None) -> None:
+    try:
+        ledger.submit(kind, artifact)
+    except LedgerUnavailable as exc:  # connection never opened: the artifact was not delivered
+        _fail(op, "LEDGER_UNAVAILABLE", exc.message)
+        return
+    except LedgerOutcomeUnknown as exc:
+        _unresolved(db, op, exc.message, order_id)
+        return
+    last = "Commit outcome could not be established."
+    for attempt in range(max(settings.commit_poll_attempts, 1)):
+        if attempt and settings.commit_poll_interval_seconds:
+            time.sleep(settings.commit_poll_interval_seconds)
+        try:
+            _apply_status(op, ledger.commit_status(kind, artifact))
+            return
+        except (LedgerOutcomeUnknown, LedgerUnavailable) as exc:
+            last = exc.message
+    _unresolved(db, op, last, order_id)
 
 
 def _settle(db: Session, op: m.LedgerOperation) -> None:
@@ -152,33 +182,39 @@ def _settle(db: Session, op: m.LedgerOperation) -> None:
 
 def reconcile(db: Session, ledger: LedgerPort, settings: Settings, op: m.LedgerOperation,
               actor_id: str | None) -> m.LedgerOperation:
-    """Query the commit status of an unresolved operation by its transaction id (Rule 6.4)."""
+    """Establish an unresolved outcome from DRUNIX commit status (Rule 6.4). Never resubmits."""
     if op.status not in PENDING:
         raise ApiError(409, "INVALID_OPERATION_STATE", "Operation already has a definitive outcome.",
                        {"status": op.status.value})
-    if not op.transaction_id:
-        raise ApiError(409, "RECONCILIATION_REQUIRED",
-                       "No DRUNIX transaction id was returned, so the outcome cannot be queried by id. "
-                       "Investigate the ledger state manually; do not resubmit blindly.", {"operation_id": op.id})
-    try:
-        result = ledger.commit_status(op.transaction_id)
-    except LedgerUnavailable as exc:
-        raise ApiError(503, "LEDGER_UNAVAILABLE", exc.message)
     previous = op.status
-    if result.state in (SubmissionState.COMMIT_CONFIRMED, SubmissionState.COMMIT_FAILED):
-        _apply(db, ledger, settings, op, result, poll=False)
-        op.observed_at = utcnow()
-        _settle(db, op)
-        for case in db.scalars(sa.select(m.ReconciliationCase).filter_by(
-                ledger_operation_id=op.id, status=ReconciliationStatus.OPEN)):
-            case.status = ReconciliationStatus.RESOLVED
-            case.resolved_at = utcnow()
-            case.resolved_by = actor_id
-            case.resolution = f"Commit status queried from DRUNIX: {op.status.value}."
+    artifact = artifact_of(op)
+    if op.status in (OperationStatus.CREATED, OperationStatus.VALIDATING):
+        # The submission was never claimed, so nothing was sent to DRUNIX.
+        _fail(op, "LEDGER_NOT_SUBMITTED", "Prepared but never submitted (process stopped before submission).")
+    elif artifact is None:
+        raise ApiError(409, "RECONCILIATION_REQUIRED",
+                       "No prepared transaction is stored, so the outcome cannot be queried. Investigate manually.",
+                       {"operation_id": op.id})
+    else:
+        try:
+            _apply_status(op, ledger.commit_status(KIND[op.operation_type], artifact))
+        except LedgerUnavailable as exc:
+            raise ApiError(503, "LEDGER_UNAVAILABLE", exc.message)
+        except LedgerOutcomeUnknown as exc:
+            raise ApiError(409, "RECONCILIATION_REQUIRED", f"Still unknown: {exc.message}", {"operation_id": op.id})
+    op.observed_at = utcnow()
+    _settle(db, op)
+    for case in db.scalars(sa.select(m.ReconciliationCase).filter_by(
+            ledger_operation_id=op.id, status=ReconciliationStatus.OPEN)):
+        case.status = ReconciliationStatus.RESOLVED
+        case.resolved_at = utcnow()
+        case.resolved_by = actor_id
+        case.resolution = f"Commit status queried from DRUNIX: {op.status.value}."
     from app.core.audit import audit
     audit(db, entity_type="ledger_operation", entity_id=op.id, operation_type="LEDGER_RECONCILIATION",
           actor_id=actor_id, previous_state=previous, new_state=op.status, operation_id=op.id,
-          ledger_transaction_id=op.transaction_id, outcome="RESOLVED" if op.status not in PENDING else "PENDING")
+          ledger_transaction_id=op.transaction_id if op.status == OperationStatus.COMMITTED else None,
+          outcome="RESOLVED")
     db.commit()
     return op
 
@@ -190,14 +226,15 @@ def outcome(op: m.LedgerOperation, data: dict, created: bool = False) -> tuple[i
     if op.status in PENDING:
         return 202, data
     code = op.error_code or "LEDGER_SUBMISSION_FAILED"
-    if code in ("LEDGER_UNAVAILABLE", "LEDGER_NOT_CONFIGURED"):
-        status, code = 503, "LEDGER_UNAVAILABLE"
+    if code in ("LEDGER_UNAVAILABLE", "LEDGER_NOT_CONFIGURED", "LEDGER_FUNCTION_UNAVAILABLE", "LEDGER_TIMEOUT"):
+        status = 503
+        code = "LEDGER_UNAVAILABLE" if code == "LEDGER_NOT_CONFIGURED" else code
     elif code in BUSINESS_CODES:
         status = 409
     elif code == "LEDGER_COMMIT_FAILED":
         status = 502
     else:
-        status, code = 502, "LEDGER_SUBMISSION_FAILED"
+        status = 502
     raise LedgerOutcomeError(status, code, op.error_message or "Ledger operation failed.", {"result": data})
 
 
@@ -205,8 +242,11 @@ def operation_view(op: m.LedgerOperation | None) -> dict | None:
     from app.core.serial import iso
     if op is None:
         return None
+    # A transaction id exists from preparation; show it only once the transaction may be on the ledger.
+    visible_tx = op.transaction_id if op.status not in (OperationStatus.CREATED, OperationStatus.VALIDATING) \
+        and op.error_code not in ("LEDGER_UNAVAILABLE", "LEDGER_NOT_SUBMITTED") else None
     return {"operation_id": op.id, "operation_type": op.operation_type.value, "status": op.status.value,
-            "ledger_transaction_id": op.transaction_id, "block_number": op.block_number,
+            "ledger_transaction_id": visible_tx, "block_number": op.block_number,
             "validation_code": op.validation_code, "error_code": op.error_code, "error_message": op.error_message,
             "function": op.function_name, "channel": op.channel, "chaincode": op.chaincode,
             "entity_type": op.entity_type, "entity_id": op.entity_id, "attempt_count": op.attempt_count,

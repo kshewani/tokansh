@@ -3,6 +3,8 @@
 Approval is an application decision. Only the approved property reference and its
 supply constraint are registered on DRUNIX (RegisterApprovedProperty) before issuance.
 """
+import hashlib
+import json
 from typing import Literal
 
 import sqlalchemy as sa
@@ -23,7 +25,7 @@ from app.db.enums import (DocumentType, EventSource, OperationStatus, OperationT
 from app.db.types import utcnow
 from app.ledger import executor
 from app.ledger.port import LedgerPort
-from app.modules.common import get_or_404, identity, property_ref, user_brief
+from app.modules.common import get_or_404, property_ref, user_brief
 
 router = APIRouter(prefix="/api/v1/properties", tags=["Property registry"])
 REVIEWERS = (UserRole.ADMIN, UserRole.ISSUER)
@@ -131,15 +133,31 @@ def _registration_failed(db: Session, op: m.LedgerOperation) -> None:
 executor.register(OperationType.APPROVED_PROPERTY_REGISTRATION, committed=_registered, failed=_registration_failed)
 
 
+def approval_digest(prop: m.Property, review: m.PropertyReview) -> str:
+    """SHA-256 of the off-chain approval record. Anchors the approval on DRUNIX without its contents."""
+    record = {"property_id": prop.id, "review_id": review.id, "reviewer_id": review.reviewer_id,
+              "decision": review.decision.value, "approved_supply": review.approved_supply,
+              "issue_price_minor": prop.proposed_issue_price_minor, "currency": prop.valuation_currency,
+              "decided_at": iso(review.decided_at)}
+    return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def _register_on_ledger(db: Session, ledger: LedgerPort, settings: Settings, prop: m.Property,
                         corr: str | None) -> m.LedgerOperation:
-    issuer = db.get(m.User, prop.issuer_id)
-    ref = property_ref(prop)
-    args = [ref, identity(issuer), str(prop.approved_supply)]
+    review = db.scalar(sa.select(m.PropertyReview).filter_by(property_id=prop.id, decision=ReviewDecision.APPROVED)
+                       .order_by(m.PropertyReview.decided_at.desc()).limit(1))
+    digest = approval_digest(prop, review)
+
+    def command(operation_id: str) -> dict:  # exact RegisterApprovedProperty v1 command, field order matters
+        return {"command_version": 1, "operation_id": operation_id, "property_id": prop.id,
+                "issuer_id": prop.issuer_id, "approval_reference": review.id, "approval_digest": digest,
+                "approved_supply": prop.approved_supply, "issue_price_minor": str(prop.proposed_issue_price_minor),
+                "currency": prop.valuation_currency}
+
     return executor.submit_operation(
         db, ledger, settings, op_type=OperationType.APPROVED_PROPERTY_REGISTRATION, entity_type="property",
-        entity_id=prop.id, function="RegisterApprovedProperty", args=args,
-        context={"approved_property_ref": ref, "property_id": prop.id}, correlation_id=corr)
+        entity_id=prop.id, command=command,
+        context={"approved_property_ref": property_ref(prop), "property_id": prop.id}, correlation_id=corr)
 
 
 # ---------------------------------------------------------------- routes

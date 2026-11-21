@@ -37,6 +37,9 @@ class LedgerOperation(Base):
     # Exact arguments sent plus the expected balance changes, as JSON. Used to apply the
     # projection after commit, to reconcile, and to reconstruct record-date holdings.
     request_payload = sa.orm.mapped_column(sa.Text, nullable=True)
+    # Signed, endorsed transaction returned by the gateway's prepare step (JSON). Needed to
+    # submit exactly once and to query commit status after a restart. Private recovery data.
+    artifact_json = sa.orm.mapped_column(sa.Text, nullable=True)
     transaction_id = text(128, nullable=True)  # exactly as returned by DRUNIX; never generated here
     drunix_network_reference = text(128, nullable=True)
     status = enum_col(OperationStatus, default=OperationStatus.CREATED, index=True)

@@ -1,6 +1,6 @@
 import sqlalchemy as sa
 
-from app.db.base import (Base, bps, created_at, currency_check, currency_col, enum_col, fk, flag, money,
+from app.db.base import (Base, bps, created_at, integer, currency_check, currency_col, enum_col, fk, flag, money,
                          quantity as qty, text, timestamp, updated_at, uuid_pk)
 from app.db.enums import CreditDecision, LoanStatus, PledgeStatus, RepaymentStatus
 
@@ -53,6 +53,10 @@ class Loan(Base):
         sa.CheckConstraint("interest_rate_bps >= 0", name="interest_non_negative"),
         sa.CheckConstraint("loan_status <> 'REPAID' OR outstanding_minor = 0", name="repaid_means_zero"),
         sa.CheckConstraint("simulation_flag = 1", name="mvp_loans_are_simulated"),
+        sa.CheckConstraint("term_months >= 1 AND term_months <= 36", name="term_in_range"),
+        sa.CheckConstraint("interest_quote_minor >= 0", name="interest_quote_non_negative"),
+        sa.CheckConstraint("interest_outstanding_minor >= 0 AND interest_outstanding_minor <= interest_quote_minor",
+                           name="interest_outstanding_in_range"),
     )
 
     id = uuid_pk()
@@ -62,6 +66,11 @@ class Loan(Base):
     principal_minor = money()
     outstanding_minor = money()
     interest_rate_bps = bps(default=0)
+    # Fixed-term simple interest, modelled separately from principal (Rule 9.2):
+    # quote = principal x rate_bps x term_months / 120000, rounded half up to the paisa.
+    term_months = integer(default=12)
+    interest_quote_minor = money(default=0)
+    interest_outstanding_minor = money(default=0)
     currency = currency_col()
     collateral_value_minor = money()
     ltv_bps = bps()       # Outstanding / Collateral, in basis points (Rule 8.4)

@@ -1,123 +1,211 @@
-"""HTTP client for the TokANSH Go DRUNIX gateway adapter (ADR-004).
+"""HTTP client for the private TokANSH Go gateway (gateway/, contract in gateway/TRANSACTIONS.md).
 
-The adapter's private HTTP interface is a TokANSH-owned contract documented in
-docs/GATEWAY_ADAPTER_CONTRACT.md. It is not a DRUNIX API. This client never
-fabricates transaction ids, blocks or commit evidence: it only passes on what
-the adapter reports, and maps transport failures conservatively:
+The gateway exposes one typed route per chaincode function: no arbitrary invocation.
+This client never fabricates transaction ids, blocks or commit evidence. It passes on
+what the gateway reports and maps failures conservatively:
 
-* cannot connect / not configured  -> LedgerUnavailable (nothing was sent)
-* timeout or broken response after sending -> UNKNOWN (must be reconciled)
+* not configured, or the connection could not be opened  -> LedgerUnavailable (nothing sent)
+* endorsement refused by a chaincode business rule      -> LedgerRejected
+* any other failure while submitting or reading status  -> LedgerOutcomeUnknown (reconcile)
+
+Security boundary (same as the gateway's own Python client): loopback literal URL
+only, no proxies, no redirects, bearer secret on every call, operator capability
+on writes, bounded response size.
 """
+import hashlib
+import json
 import logging
+import re
 from typing import Any
 
 import httpx
 
 from app.core.config import Settings
-from app.ledger.port import LedgerQueryError, LedgerResult, LedgerUnavailable, SubmissionState
+from app.ledger.port import (FUNCTIONS, CommitStatus, LedgerOutcomeUnknown, LedgerRejected, LedgerUnavailable)
 
 log = logging.getLogger("tokansh.ledger")
+
+LOOPBACK = re.compile(r"http://(?:127\.0\.0\.1|\[::1\]):([0-9]{1,5})/?")
+SECRET = re.compile(r"[0-9a-fA-F]{64}")
+MAX_BODY = 2 << 20
+
+# kind -> (prepare, submit, commit-status) routes under /v1/tokansh/
+ROUTES = {
+    "registration": ("property-registrations/prepare", "property-registrations/submit", "commit-status"),
+    "issuance": ("issuances/prepare", "issuances/submit", "issuances/commit-status"),
+    "transfer": ("transfers/prepare", "transfers/submit", "transfers/commit-status"),
+}
+# Gateway business codes (HTTP status, code) -> TokANSH API error code.
+BUSINESS = {
+    "INSUFFICIENT_BALANCE": "INSUFFICIENT_AVAILABLE_ANSH",
+    "ISSUANCE_LIMIT_EXCEEDED": "ISSUANCE_LIMIT_EXCEEDED",
+    "IDEMPOTENCY_CONFLICT": "IDEMPOTENCY_CONFLICT",
+    "PROPERTY_NOT_FOUND": "PROPERTY_NOT_APPROVED",
+    "PROPERTY_ALREADY_REGISTERED": "INVALID_OPERATION_STATE",
+    "UNAUTHORIZED": "LEDGER_UNAUTHORIZED",
+    "INVALID_REQUEST": "INVALID_REQUEST",
+}
+
+
+def canonical(command: dict) -> str:
+    """Compact JSON in field order, as the gateway digests it (Go json.Marshal of the struct)."""
+    return json.dumps(command, separators=(",", ":"))
+
+
+def _unique(pairs):
+    out = {}
+    for k, v in pairs:
+        if k in out:
+            raise ValueError("duplicate JSON field")
+        out[k] = v
+    return out
 
 
 class GatewayLedgerClient:
     def __init__(self, settings: Settings, transport: httpx.BaseTransport | None = None):
         self.settings = settings
-        self._base = settings.drunix_gateway_url
-        self._client = httpx.Client(base_url=self._base or "http://unconfigured.invalid",
-                                    timeout=settings.drunix_timeout_seconds, transport=transport)
+        self._client = httpx.Client(timeout=settings.drunix_timeout_seconds, transport=transport,
+                                    trust_env=False, follow_redirects=False)
+
+    # ------------------------------------------------------------ configuration
+    def _config_problem(self) -> str | None:
+        s = self.settings
+        m = LOOPBACK.fullmatch(s.drunix_gateway_url or "")
+        if not s.drunix_gateway_url:
+            return "DRUNIX gateway is not configured (DRUNIX_GATEWAY_URL is empty)."
+        if m is None or not 1 <= int(m[1]) <= 65535:
+            return "DRUNIX_GATEWAY_URL must be a loopback address such as http://127.0.0.1:8001."
+        if not SECRET.fullmatch(s.tokansh_gateway_secret or "") or not SECRET.fullmatch(s.tokansh_operator_secret or ""):
+            return "TOKANSH_GATEWAY_SECRET and TOKANSH_OPERATOR_SECRET must be 64 hex characters."
+        if s.tokansh_gateway_secret.lower() == s.tokansh_operator_secret.lower():
+            return "TOKANSH_GATEWAY_SECRET and TOKANSH_OPERATOR_SECRET must differ."
+        return None
 
     @property
     def configured(self) -> bool:
-        return bool(self._base)
+        return self._config_problem() is None
 
-    def _require_configured(self) -> None:
-        if not self.configured:
-            raise LedgerUnavailable("DRUNIX gateway adapter is not configured (DRUNIX_GATEWAY_URL is empty).",
-                                    code="LEDGER_NOT_CONFIGURED")
+    def _require(self) -> None:
+        problem = self._config_problem()
+        if problem:
+            raise LedgerUnavailable(problem, code="LEDGER_NOT_CONFIGURED")
 
-    def submit(self, *, function: str, args: list[str], operation_id: str, correlation_id: str | None) -> LedgerResult:
-        self._require_configured()
-        body = {"channel": self.settings.drunix_channel, "chaincode": self.settings.drunix_chaincode,
-                "function": function, "args": args, "operation_id": operation_id, "correlation_id": correlation_id}
+    # ------------------------------------------------------------ transport
+    def _call(self, method: str, path: str, payload: Any = None) -> tuple[int, dict]:
+        """Returns (status, parsed body). Raises httpx errors and ValueError to the caller."""
+        s = self.settings
+        headers = {"Authorization": "Bearer " + s.tokansh_gateway_secret}
+        if method == "POST":
+            headers["X-Operator-Capability"] = s.tokansh_operator_secret
+        url = s.drunix_gateway_url.rstrip("/") + "/v1/tokansh/" + path
+        with self._client.stream(method, url, headers=headers, json=payload) as resp:
+            body = bytearray()
+            for chunk in resp.iter_bytes():
+                body.extend(chunk)
+                if len(body) > MAX_BODY:
+                    raise ValueError("gateway response too large")
+            if resp.headers.get("content-type", "").split(";")[0] != "application/json":
+                raise ValueError("gateway response is not JSON")
+            data = json.loads(body, object_pairs_hook=_unique)
+            if not isinstance(data, dict):
+                raise ValueError("gateway response is not an object")
+            return resp.status_code, data
+
+    # ------------------------------------------------------------ writes
+    def prepare(self, kind: str, command: dict) -> dict:
+        self._require()
+        if kind not in ROUTES:
+            raise LedgerUnavailable(f"{FUNCTIONS.get(kind, kind)} is not available in the deployed TokANSH chaincode yet.",
+                                    code="LEDGER_FUNCTION_UNAVAILABLE")
         try:
-            resp = self._client.post("/v1/transactions/submit", json=body)
+            status, frame = self._call("POST", ROUTES[kind][0], command)
+        except httpx.HTTPError as exc:  # endorsement only: no ledger effect either way
+            raise LedgerUnavailable(f"DRUNIX gateway unreachable during preparation ({type(exc).__name__}).") from exc
+        except ValueError as exc:
+            raise LedgerUnavailable(f"Gateway returned an unsupported response: {exc}", code="GATEWAY_BAD_RESPONSE") from exc
+        if status != 200:
+            err = frame.get("error") if isinstance(frame.get("error"), dict) else {}
+            code = err.get("code", "")
+            if code in BUSINESS:
+                raise LedgerRejected(BUSINESS[code], err.get("message") or "The chaincode refused the command.")
+            raise LedgerUnavailable(f"Gateway preparation failed (HTTP {status} {code or 'error'}).",
+                                    code="LEDGER_TIMEOUT" if code == "LEDGER_TIMEOUT" else "LEDGER_UNAVAILABLE")
+        artifact = frame.get("data")
+        self._check_artifact(kind, command, artifact)
+        return artifact
+
+    def _check_artifact(self, kind: str, command: dict, a: Any) -> None:
+        s = self.settings
+        digest = hashlib.sha256(canonical(command).encode()).hexdigest()
+        ok = (isinstance(a, dict) and a.get("version") == 1 and a.get("command") == command
+              and a.get("request_digest") == digest and a.get("channel") == s.drunix_channel
+              and a.get("chaincode") == s.drunix_chaincode
+              and isinstance(a.get("transaction_id"), str) and a["transaction_id"]
+              and all(isinstance(a.get(k), str) and a[k] for k in ("transaction", "creator", "mac", "signer"))
+              and ("function" not in a or a["function"] == FUNCTIONS[kind])
+              and (not s.drunix_signer or a.get("signer") == s.drunix_signer))
+        if not ok:
+            raise LedgerUnavailable("The prepared transaction does not match the request; nothing was submitted.",
+                                    code="INVALID_ARTIFACT")
+
+    def submit(self, kind: str, artifact: dict) -> None:
+        self._require()
+        try:
+            status, frame = self._call("POST", ROUTES[kind][1], artifact)
         except httpx.ConnectError as exc:
-            raise LedgerUnavailable(f"DRUNIX gateway adapter unreachable: {exc}") from exc
-        except httpx.TimeoutException:
-            log.warning("ledger submit timed out; outcome unknown", extra={"operation_id": operation_id})
-            return LedgerResult(SubmissionState.UNKNOWN, error_code="LEDGER_OUTCOME_UNKNOWN",
-                                error_message="Timed out waiting for the gateway adapter.")
-        except httpx.HTTPError as exc:
-            return LedgerResult(SubmissionState.UNKNOWN, error_code="LEDGER_OUTCOME_UNKNOWN", error_message=str(exc))
-        return self._parse(resp)
+            # The TCP connection never opened, so the artifact was not delivered.
+            raise LedgerUnavailable(f"DRUNIX gateway unreachable; transaction not submitted ({exc}).") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LedgerOutcomeUnknown(f"Submission outcome unknown ({type(exc).__name__}).") from exc
+        expected = {"state": "SUBMITTED", "transaction_id": artifact["transaction_id"]}
+        if status != 200 or frame.get("data") != expected:
+            raise LedgerOutcomeUnknown(f"Submission outcome unknown (gateway HTTP {status}).")
 
-    def commit_status(self, transaction_id: str) -> LedgerResult:
-        self._require_configured()
+    def commit_status(self, kind: str, artifact: dict) -> CommitStatus:
+        self._require()
         try:
-            resp = self._client.get(f"/v1/transactions/{transaction_id}/status",
-                                    params={"channel": self.settings.drunix_channel})
+            status, frame = self._call("POST", ROUTES[kind][2], artifact)
         except httpx.ConnectError as exc:
-            raise LedgerUnavailable(f"DRUNIX gateway adapter unreachable: {exc}") from exc
-        except httpx.HTTPError as exc:
-            return LedgerResult(SubmissionState.UNKNOWN, transaction_id=transaction_id,
-                                error_code="LEDGER_OUTCOME_UNKNOWN", error_message=str(exc))
-        result = self._parse(resp)
-        result.transaction_id = result.transaction_id or transaction_id
-        return result
+            raise LedgerUnavailable(f"DRUNIX gateway unreachable ({exc}).") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LedgerOutcomeUnknown(f"Commit status unavailable ({type(exc).__name__}).") from exc
+        r = frame.get("data") if status == 200 else None
+        if (not isinstance(r, dict) or set(r) != {"transaction_id", "code", "block_number", "successful"}
+                or r["transaction_id"] != artifact["transaction_id"]
+                or type(r["code"]) is not int or r["code"] < 0 or type(r["block_number"]) is not int
+                or r["block_number"] < 0 or type(r["successful"]) is not bool or r["successful"] != (r["code"] == 0)):
+            raise LedgerOutcomeUnknown(f"Commit status unavailable (gateway HTTP {status}).")
+        return CommitStatus(r["transaction_id"], r["code"], r["block_number"], r["successful"])
 
-    def evaluate(self, *, function: str, args: list[str]) -> dict[str, Any]:
-        self._require_configured()
-        body = {"channel": self.settings.drunix_channel, "chaincode": self.settings.drunix_chaincode,
-                "function": function, "args": args}
+    # ------------------------------------------------------------ reads
+    def get_position(self, property_id: str, holder_id: str) -> dict[str, int]:
+        """Owned units from GetBalance. The chaincode has no pledge records yet, so pledged is 0."""
+        self._require()
         try:
-            resp = self._client.post("/v1/transactions/evaluate", json=body)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            raise LedgerUnavailable(f"DRUNIX gateway adapter unreachable: {exc}") from exc
-        data = _json(resp)
-        if resp.status_code >= 500 and not data.get("error"):
-            raise LedgerUnavailable(f"Gateway adapter error HTTP {resp.status_code}.")
-        if resp.status_code >= 400 or data.get("error"):
-            err = data.get("error") or {}
-            raise LedgerQueryError(err.get("code", "LEDGER_QUERY_FAILED"), err.get("message", "Ledger query failed."))
-        return data.get("result") or {}
+            status, frame = self._call("GET", f"balances/{property_id}/{holder_id}")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LedgerUnavailable(f"DRUNIX balance read failed ({type(exc).__name__}).") from exc
+        if status == 404:
+            return {"owned": 0, "pledged": 0}
+        b = frame.get("data") if status == 200 else None
+        if (not isinstance(b, dict) or b.get("property_id") != property_id or b.get("holder_id") != holder_id
+                or type(b.get("quantity")) is not int or b["quantity"] < 0):
+            code = (frame.get("error") or {}).get("code", "") if isinstance(frame.get("error"), dict) else ""
+            raise LedgerUnavailable(f"DRUNIX balance read failed (HTTP {status} {code}).".strip())
+        return {"owned": b["quantity"], "pledged": 0}
 
     def health(self) -> dict[str, Any]:
-        if not self.configured:
-            return {"status": "UNAVAILABLE", "detail": "DRUNIX_GATEWAY_URL is not configured."}
+        problem = self._config_problem()
+        if problem:
+            return {"status": "UNAVAILABLE", "detail": problem}
         try:
-            resp = self._client.get("/health", timeout=5.0)
-        except httpx.HTTPError as exc:
-            return {"status": "UNAVAILABLE", "detail": f"Gateway adapter unreachable ({type(exc).__name__})."}
-        data = _json(resp)
-        if resp.status_code != 200:
-            return {"status": "DEGRADED", "detail": f"Gateway adapter returned HTTP {resp.status_code}."}
-        status = data.get("status", "UNKNOWN")
-        return {"status": status if status in {"CONNECTED", "DEGRADED", "UNAVAILABLE"} else "UNKNOWN",
-                "detail": data.get("detail", "Reported by the gateway adapter.")}
-
-    @staticmethod
-    def _parse(resp: httpx.Response) -> LedgerResult:
-        data = _json(resp)
-        state_raw = data.get("state")
-        try:
-            state = SubmissionState(state_raw)
-        except ValueError:
-            # A response we cannot interpret is never treated as success or failure.
-            return LedgerResult(SubmissionState.UNKNOWN, transaction_id=data.get("transaction_id"),
-                                error_code="LEDGER_OUTCOME_UNKNOWN",
-                                error_message=f"Unrecognised adapter response (HTTP {resp.status_code}).")
-        err = data.get("error") or {}
-        block = data.get("block_number")
-        return LedgerResult(state=state, transaction_id=data.get("transaction_id"),
-                            validation_code=data.get("validation_code"),
-                            block_number=int(block) if block is not None else None,
-                            error_code=err.get("code"), error_message=err.get("message"),
-                            payload=data.get("result") or {})
-
-
-def _json(resp: httpx.Response) -> dict:
-    try:
-        data = resp.json()
-        return data if isinstance(data, dict) else {}
-    except ValueError:
-        return {}
+            status, frame = self._call("GET", "contract-info")
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"status": "UNAVAILABLE", "detail": f"Gateway unreachable ({type(exc).__name__})."}
+        info = frame.get("data") if status == 200 else None
+        if not isinstance(info, dict) or not isinstance(info.get("functions"), list):
+            return {"status": "DEGRADED", "detail": f"Gateway answered HTTP {status} without contract information."}
+        missing = [f for f in ("IssueANSH", "TransferANSH") if f not in info["functions"]]
+        detail = f"DRUNIX evaluate ok: {info.get('contract', 'tokansh')} with {len(info['functions'])} functions"
+        return {"status": "DEGRADED" if missing else "CONNECTED",
+                "detail": detail + (f"; missing {', '.join(missing)}" if missing else "") + ". Pledges not on-chain yet."}
