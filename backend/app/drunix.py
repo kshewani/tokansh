@@ -67,6 +67,13 @@ class GatewayHealth(StrictModel):
     mode: Literal["READ_ONLY"]
 
 
+class TokanshContractInfo(StrictModel):
+    contract: Literal["tokansh"]
+    schema_version: Literal[1]
+    functions: list[str]
+    supply_interpretation: str
+
+
 class GatewayAdapter:
     def __init__(self, base_url: str | None, client: httpx.Client):
         self.base_url = base_url
@@ -119,6 +126,31 @@ class GatewayAdapter:
     def health(self, correlation_id: str):
         return self._get("/health", correlation_id, GatewayHealth)
 
+    def contract_info(self, correlation_id: str):
+        if self.base_url is None:
+            raise ApplicationError(503, "GATEWAY_UNAVAILABLE", "Read-only gateway is not configured.")
+        try:
+            with self.client.stream("GET", self.base_url + "/v1/tokansh/contract-info",
+                                    headers={"X-Correlation-ID": correlation_id}) as response:
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) > 1 << 20:
+                        raise ApplicationError(502, "GATEWAY_BAD_RESPONSE", "Gateway response exceeds the diagnostic limit.")
+                if response.status_code != 200:
+                    raise ApplicationError(503, "LEDGER_UNAVAILABLE", "DRUNIX diagnostic evaluation is unavailable.")
+                payload = json.loads(body)
+                data = payload.get("data", payload) if isinstance(payload, dict) else None
+                if not isinstance(data, dict) or data.get("contract") != "tokansh":
+                    raise ApplicationError(502, "GATEWAY_BAD_RESPONSE", "The private gateway returned an unsupported response.")
+                return data
+        except httpx.TimeoutException as exc:
+            raise ApplicationError(504, "GATEWAY_TIMEOUT", "The private gateway did not respond in time.") from exc
+        except httpx.RequestError as exc:
+            raise ApplicationError(503, "GATEWAY_UNAVAILABLE", "The private gateway could not be reached.") from exc
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise ApplicationError(502, "GATEWAY_BAD_RESPONSE", "The private gateway returned an unsupported response.") from exc
+
     def all_assets(self, correlation_id: str):
         observation = self._get("/v1/basic/assets", correlation_id, DiagnosticObservation[list[DiagnosticAsset]])
         if observation.function != "GetAllAssets" or len({asset.ID for asset in observation.result}) != len(observation.result):
@@ -150,7 +182,7 @@ class GatewayAdapter:
         except ApplicationError as exc:
             return ("DEGRADED" if exc.code == "GATEWAY_BAD_RESPONSE" else "UNAVAILABLE"), "UNKNOWN"
         try:
-            self.all_assets(correlation_id)
+            self.contract_info(correlation_id)
         except ApplicationError as exc:
             return "CONNECTED", "UNAVAILABLE" if exc.code.startswith("LEDGER_") else "UNKNOWN"
         return "CONNECTED", "CONNECTED"

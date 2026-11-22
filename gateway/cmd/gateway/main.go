@@ -25,13 +25,17 @@ func main() {
 	defer sdk.Close()
 	key := registration.Secret(os.Getenv("TOKANSH_GATEWAY_SECRET"))
 	operator := registration.Secret(os.Getenv("TOKANSH_OPERATOR_SECRET"))
+	var serviceSigner string
 	service := &registration.Service{Key: key}
 	if len(key) == 32 && len(operator) == 32 {
-		service.Ledger, err = registration.NewSDK(sdk.GatewayClient(), c.MSPID, c.CertPath)
+		adapter, err := registration.NewAdapter(sdk.GatewayClient(), c.MSPID, c.CertPath)
 		if err != nil {
 			log.Fatal("registration signer configuration failed")
 		}
+		service.Ledger = adapter
+		serviceSigner = adapter.Signer()
 	}
+	service.Signer = serviceSigner
 	mux := http.NewServeMux()
 	mux.Handle("/v1/tokansh/", registration.Handler(service, operator))
 	mux.Handle("/", readonly.NewHandler(sdk, c))

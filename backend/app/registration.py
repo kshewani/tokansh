@@ -14,7 +14,6 @@ from app.database import Base
 from app.errors import ApplicationError
 
 STATES = ('CREATED','PREPARED','SUBMISSION_PENDING','SUBMITTED','COMMITTED_VALID','COMMITTED_INVALID','UNKNOWN')
-SIGNER = 'Org1MSP:54690b215edf0e4065332b7b3bd6387dad86f6a36de54b2c49b945309abac59c'
 FIELDS = ('command_version','operation_id','property_id','issuer_id','approval_reference','approval_digest','approved_supply','issue_price_minor','currency')
 
 
@@ -128,10 +127,10 @@ class RegistrationService:
             if row.state!='CREATED': return row.state
             command=json.loads(row.command_json);artifact=self.client.request('property-registrations/prepare',command)
             if (artifact.get('version')!=1 or artifact.get('command')!=command or artifact.get('request_digest')!=row.request_digest
-                or artifact.get('signer')!=SIGNER or artifact.get('channel')!='mychannel' or artifact.get('chaincode')!='tokansh'
+                or artifact.get('channel')!='mychannel' or artifact.get('chaincode')!='tokansh'
                 or not isinstance(artifact.get('transaction_id'),str) or not artifact['transaction_id']
                 or not all(isinstance(artifact.get(k),str) and artifact[k] for k in ('transaction','creator','mac'))): raise fail('INVALID_ARTIFACT')
-            row.artifact_json=json.dumps(artifact,separators=(',',':'));row.transaction_id=artifact['transaction_id'];row.signer=SIGNER;row.state='PREPARED';session.commit()
+            row.artifact_json=json.dumps(artifact,separators=(',',':'));row.transaction_id=artifact['transaction_id'];row.signer=artifact['signer'];row.state='PREPARED';session.commit()
             return row.state
 
     def submit(self,operation_id,capability):

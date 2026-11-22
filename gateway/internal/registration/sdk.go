@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"os"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 type SDK struct {
 	gateway *client.Gateway
 	creator []byte
+	signer  string
 }
 
 func NewSDK(gw *client.Gateway, mspID, certPath string) (*SDK, error) {
@@ -37,15 +37,13 @@ func NewSDK(gw *client.Gateway, mspID, certPath string) (*SDK, error) {
 		return nil, invalid
 	}
 	sum := sha256.Sum256(cert.Raw)
-	if mspID+":"+hex.EncodeToString(sum[:]) != Signer {
-		return nil, errors.New("SIGNER_NOT_ALLOWED")
-	}
-	// The certificate pin also fixes the reviewed Fabric subject/issuer principal.
+	signer := mspID + ":" + hex.EncodeToString(sum[:])
+	// The signer is derived from the configured certificate, not a hardcoded network value.
 	creator, e := proto.Marshal(&msp.SerializedIdentity{Mspid: mspID, IdBytes: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})})
 	if e != nil {
 		return nil, invalid
 	}
-	return &SDK{gw, creator}, nil
+	return &SDK{gateway: gw, creator: creator, signer: signer}, nil
 }
 func (s *SDK) Read(ctx context.Context, f string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -141,3 +139,5 @@ func (s *SDK) Status(ctx context.Context, a Artifact) (Status, error) {
 	}
 	return Status{v.TransactionID, int32(v.Code), v.BlockNumber, v.Successful}, nil
 }
+
+func (s *SDK) Signer() string { return s.signer }

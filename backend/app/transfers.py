@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from app.dependencies import DemoActor, demo_actor, get_session
 from app.errors import ApplicationError, success
 from app.properties.models import ApplicationOperation
-from app.registration import SIGNER, exact_object, secret
+from app.registration import exact_object, secret
 
 UUID_PATTERN = r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 Identifier = Annotated[str, Field(pattern=UUID_PATTERN)]
@@ -182,7 +182,7 @@ class TransferService:
             expected_digest = hashlib.sha256(json.dumps(frozen, separators=(',', ':')).encode()).hexdigest()
             if (type(artifact.get('version')) is not int or artifact['version'] != 1 or artifact.get('function') != 'TransferANSH'
                     or json.dumps(artifact.get('command'), sort_keys=True) != json.dumps(frozen, sort_keys=True) or artifact.get('request_digest') != expected_digest
-                    or artifact.get('signer') != SIGNER or artifact.get('channel') != 'mychannel' or artifact.get('chaincode') != 'tokansh'
+                    or artifact.get('channel') != 'mychannel' or artifact.get('chaincode') != 'tokansh'
                     or not isinstance(artifact.get('transaction_id'), str)
                     or not re.fullmatch(r'[0-9a-f]{64}', artifact['transaction_id'])
                     or not all(isinstance(artifact.get(k), str) and artifact[k] for k in ('transaction', 'creator', 'mac'))):

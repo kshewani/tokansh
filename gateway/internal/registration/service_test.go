@@ -62,7 +62,7 @@ func (m *mockLedger) Status(context.Context, Artifact) (Status, error) {
 func TestArtifactIntegrityAndTypedAllowlist(t *testing.T) {
 	tx, creator := prepared(t, command())
 	m := &mockLedger{tx: tx, creator: creator}
-	s := &Service{m, bytes.Repeat([]byte{1}, 32)}
+	s := &Service{Ledger: m, Key: bytes.Repeat([]byte{1}, 32)}
 	a, e := s.Prepare(context.Background(), command())
 	if e != nil {
 		t.Fatal(e)
@@ -97,7 +97,7 @@ func TestAuthenticationAndSanitization(t *testing.T) {
 	m := &mockLedger{tx: tx, creator: c}
 	key := bytes.Repeat([]byte{1}, 32)
 	op := bytes.Repeat([]byte{2}, 32)
-	handler := Handler(&Service{m, key}, op)
+	handler := Handler(&Service{Ledger: m, Key: key}, op)
 	for _, tc := range []struct {
 		token, operator, origin string
 		status                  int
@@ -146,7 +146,7 @@ func TestPrepareAndStatusHTTP(t *testing.T) {
 	m := &mockLedger{tx: tx, creator: c}
 	key := bytes.Repeat([]byte{1}, 32)
 	op := bytes.Repeat([]byte{2}, 32)
-	service := &Service{m, key}
+	service := &Service{Ledger: m, Key: key}
 	handler := Handler(service, op)
 	request := func(path string, body []byte) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/v1/tokansh/"+path, bytes.NewReader(body))

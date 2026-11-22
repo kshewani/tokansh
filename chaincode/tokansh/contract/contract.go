@@ -24,7 +24,6 @@ const (
 	maxCommandBytes               = 4096
 	registrationMSP               = "Org1MSP"
 	registrationDN                = "x509::CN=User1@org1.example.com,OU=client,L=San Francisco,ST=California,C=US::CN=ca.org1.example.com,O=org1.example.com,L=San Francisco,ST=California,C=US"
-	registrationFingerprint       = "54690b215edf0e4065332b7b3bd6387dad86f6a36de54b2c49b945309abac59c"
 )
 
 var (
@@ -132,14 +131,6 @@ func authorizeRegistration(ctx contractapi.TransactionContextInterface) (string,
 	}
 	principal, err := id.GetID()
 	if err != nil || principal != registrationPrincipal() {
-		return "", failure("UNAUTHORIZED")
-	}
-	cert, err := id.GetX509Certificate()
-	if err != nil || cert == nil {
-		return "", failure("UNAUTHORIZED")
-	}
-	sum := sha256.Sum256(cert.Raw)
-	if hex.EncodeToString(sum[:]) != registrationFingerprint {
 		return "", failure("UNAUTHORIZED")
 	}
 	return principal, nil

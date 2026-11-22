@@ -21,7 +21,7 @@ def system_status(request: Request, gateway: GatewayAdapter) -> dict:
         {"name": "Validation service", "status": "UNKNOWN"},
         {"name": "DRUNIX state database", "status": "UNKNOWN"},
         {"name": "DRUNIX network connectivity", "status": connectivity_status},
-        {"name": "DRUNIX transaction capability", "status": "UNAVAILABLE"},
+        {"name": "DRUNIX transaction capability", "status": "CONNECTED" if gateway_status == "CONNECTED" else "UNAVAILABLE"},
     ], "last_ledger_operation": None}
 
 

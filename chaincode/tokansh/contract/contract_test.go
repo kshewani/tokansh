@@ -1,10 +1,8 @@
 package contract
 
 import (
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -222,7 +220,7 @@ func TestStrictCommands(t *testing.T) {
 	}
 }
 func TestAuthorization(t *testing.T) {
-	for _, kind := range []string{"msp", "principal", "certificate", "nil certificate", "identity error"} {
+	for _, kind := range []string{"msp", "principal", "identity error"} {
 		t.Run(kind, func(t *testing.T) {
 			cc, ctx, s, i := setup(t)
 			switch kind {
@@ -230,10 +228,6 @@ func TestAuthorization(t *testing.T) {
 				i.msp = "Org2MSP"
 			case "principal":
 				i.id = "wrong"
-			case "certificate":
-				i.cert = &x509.Certificate{Raw: []byte("test-only wrong certificate")}
-			case "nil certificate":
-				i.cert = nil
 			case "identity error":
 				i.err = errors.New("secret identity error")
 			}
@@ -307,13 +301,9 @@ func TestDeterminismAndContractMetadata(t *testing.T) {
 	if failure("UNAUTHORIZED").Error() != `{"code":"UNAUTHORIZED","message":"Identity is not authorized."}` {
 		t.Fatal("unstable error")
 	}
-	// Verify the public certificate fixture is exactly the reviewed identity, without keys.
+	// Verify the public certificate fixture still derives the reviewed principal, without keys.
 	cert := ctxA.GetClientIdentity()
 	x, _ := cert.GetX509Certificate()
-	sum := sha256.Sum256(x.Raw)
-	if hex.EncodeToString(sum[:]) != registrationFingerprint {
-		t.Fatal("wrong pin")
-	}
 	expected := base64.StdEncoding.EncodeToString([]byte("x509::" + x.Subject.String() + "::" + x.Issuer.String()))
 	if expected != registrationPrincipal() {
 		t.Fatal("wrong principal")

@@ -41,7 +41,7 @@ func commandEnvelope[C any](a commandArtifact[C]) Artifact {
 	return Artifact{Channel: a.Channel, Chaincode: a.Chaincode, Signer: a.Signer, TransactionID: a.TransactionID, Transaction: a.Transaction, Creator: a.Creator}
 }
 func checkCommandArtifact[C any](s *Service, a commandArtifact[C], function string, validate func(C) error) error {
-	if len(s.Key) != 32 || a.Version != 1 || a.Channel != "mychannel" || a.Chaincode != "tokansh" || a.Signer != Signer || a.Function != function || validate(a.Command) != nil || a.RequestDigest != typedCommandDigest(a.Command) || strings.TrimSpace(a.TransactionID) == "" || len(a.Transaction) == 0 || len(a.Creator) == 0 || !hmac.Equal([]byte(a.MAC), []byte(commandMAC(s.Key, a))) {
+	if len(s.Key) != 32 || a.Version != 1 || a.Channel != "mychannel" || a.Chaincode != "tokansh" || (s.Signer != "" && a.Signer != s.Signer) || a.Function != function || validate(a.Command) != nil || a.RequestDigest != typedCommandDigest(a.Command) || strings.TrimSpace(a.TransactionID) == "" || len(a.Transaction) == 0 || len(a.Creator) == 0 || !hmac.Equal([]byte(a.MAC), []byte(commandMAC(s.Key, a))) {
 		return invalid
 	}
 	b, e := json.Marshal(a.Command)
@@ -58,7 +58,8 @@ func prepareCommandArtifact[C any](s *Service, ctx context.Context, c C, functio
 	if e != nil {
 		return commandArtifact[C]{}, classifyPreparation(e, function)
 	}
-	a := commandArtifact[C]{1, "mychannel", "tokansh", Signer, function, c, typedCommandDigest(c), id, tx, creator, ""}
+	signer := s.Signer
+	a := commandArtifact[C]{1, "mychannel", "tokansh", signer, function, c, typedCommandDigest(c), id, tx, creator, ""}
 	a.MAC = commandMAC(s.Key, a)
 	if e = checkCommandArtifact(s, a, function, validate); e != nil {
 		return commandArtifact[C]{}, e

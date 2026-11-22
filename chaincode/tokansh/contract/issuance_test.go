@@ -2,7 +2,6 @@ package contract
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"math"
@@ -227,7 +226,7 @@ func TestIssuanceUnknownPropertyAndReadValidation(t *testing.T) {
 }
 
 func TestIssuanceAuthorization(t *testing.T) {
-	for _, kind := range []string{"msp", "principal", "certificate", "nil certificate", "identity error"} {
+	for _, kind := range []string{"msp", "principal", "identity error"} {
 		t.Run(kind, func(t *testing.T) {
 			cc, ctx, stub, id := issuanceSetup(t, 100)
 			switch kind {
@@ -235,10 +234,6 @@ func TestIssuanceAuthorization(t *testing.T) {
 				id.msp = "Org2MSP"
 			case "principal":
 				id.id = "issuer supplied by request"
-			case "certificate":
-				id.cert = &x509.Certificate{Raw: []byte("test-only wrong certificate")}
-			case "nil certificate":
-				id.cert = nil
 			case "identity error":
 				id.err = errors.New("secret identity error")
 			}

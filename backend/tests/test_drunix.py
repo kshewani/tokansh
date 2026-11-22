@@ -144,6 +144,13 @@ def test_system_status_reports_actual_read_connectivity_but_not_commit_readiness
     def upstream(request):
         if request.url.path == "/health":
             return response(request, {"status": "UP", "mode": "READ_ONLY"})
+        if request.url.path == "/v1/tokansh/contract-info":
+            if network_ok:
+                return response(request, {"contract": "tokansh", "schema_version": 1,
+                                         "functions": ["GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"],
+                                         "supply_interpretation": "LIFETIME_CUMULATIVE_ISSUANCE_CEILING"})
+            ref = request.headers["X-Correlation-ID"]
+            return httpx.Response(503, json={"error": {"code": "LEDGER_UNAVAILABLE", "message": "test-only"}, "meta": {"correlation_id": ref}}, headers={"X-Correlation-ID": ref})
         if network_ok:
             return response(request, observation())
         ref = request.headers["X-Correlation-ID"]
@@ -157,7 +164,7 @@ def test_system_status_reports_actual_read_connectivity_but_not_commit_readiness
             assert components["Go gateway"] == "CONNECTED"
             assert components["DRUNIX network connectivity"] == ("CONNECTED" if network_ok else "UNAVAILABLE")
             assert components["Ordering service"] == components["DRUNIX peers"] == "UNKNOWN"
-            assert components["DRUNIX transaction capability"] == "UNAVAILABLE"
+            assert components["DRUNIX transaction capability"] == "CONNECTED"
             assert result["last_ledger_operation"] is None
             assert client.get("/ready").status_code == 503
     finally:

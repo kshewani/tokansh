@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.properties.models import ApplicationOperation
-from app.registration import SIGNER
+SIGNER = 'Org1MSP:test-only-signer'
 from app.transfers import TransferGateway
 
 PID='f6169750-4676-4e99-887f-2bc5471bd518'

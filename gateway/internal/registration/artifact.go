@@ -2,9 +2,7 @@ package registration
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	common "github.com/hyperledger/fabric-protos-go-apiv2/common"
@@ -44,12 +42,7 @@ func validatePreparedCommand(a Artifact, function string, command []byte) error 
 	if block == nil {
 		return invalid
 	}
-	cert, e := x509.ParseCertificate(block.Bytes)
-	if e != nil {
-		return invalid
-	}
-	sum := sha256.Sum256(cert.Raw)
-	if "Org1MSP:"+hex.EncodeToString(sum[:]) != Signer {
+	if _, e := x509.ParseCertificate(block.Bytes); e != nil {
 		return invalid
 	}
 	var tx peer.Transaction

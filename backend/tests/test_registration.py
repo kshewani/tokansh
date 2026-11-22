@@ -2,7 +2,8 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 import pytest
-from app.registration import RegistrationService, LedgerOperation, SIGNER
+from app.registration import RegistrationService, LedgerOperation
+SIGNER = 'Org1MSP:test-only-signer'
 from app.errors import ApplicationError
 
 CAP='02'*32
