@@ -1,7 +1,7 @@
 import {isRecord,RequestError} from './client.ts';
 export const financeStates=['APPLIED','ASSESSED','APPROVED','REJECTED','DISBURSED','REPAID','RELEASED'] as const;
 export type FinanceState=typeof financeStates[number];
-export type FinanceCommand={property_id:string;asset_class:'ANSH';quantity:number;unit_value_minor:string;ltv_percent:number;annual_rate_bps:number;term_months:number};
+export type FinanceCommand={property_id:string;asset_class:'ANSH';quantity:number;lender_id?:string;offer_id?:string;unit_value_minor:string;ltv_percent:number;annual_rate_bps:number;term_months:number};
 export type Loan=FinanceCommand&{id:string;borrower_id:string;type:'SIMULATED_FINANCING';state:FinanceState;simulated:true;on_chain_lock:false;reservation_active:boolean;collateral_value_minor:string;principal_minor:string;interest_minor:string;repayment_minor:string;outstanding_principal_minor:string;amount_due_minor:string;created_at:string;updated_at:string;assessment:null|{simulated:true;eligible:boolean;observed_owned:number;ownership_source:'DRUNIX_EVALUATE';observed_at:string;risk_band:'MODERATE'|'ELEVATED';reason:string};timeline:{state:FinanceState;timestamp:string;actor_role:string;simulated:true}[]};
 export type Eligibility={property_id:string;holder_id:string;owned:number;reserved_simulated:number;eligible_simulated:number;reservation_shortfall:boolean;on_chain_lock:false;ownership_source:'DRUNIX_EVALUATE';observed_at:string};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -32,6 +32,7 @@ export function parseLoan(value:unknown):Loan{
   !['collateral_value_minor','principal_minor','interest_minor','repayment_minor','outstanding_principal_minor','amount_due_minor'].every(k=>money(value[k]))||
   !Array.isArray(value.timeline)||!value.timeline.length||!value.timeline.every(e=>isRecord(e)&&financeStates.includes(e.state as FinanceState)&&e.simulated===true&&typeof e.actor_role==='string'&&typeof e.timestamp==='string'&&Number.isFinite(Date.parse(e.timestamp)))||
   value.timeline[value.timeline.length-1].state!==value.state)return bad();
+ if(('lender_id' in value&&(typeof value.lender_id!=='string'||!value.lender_id))||('offer_id' in value&&(typeof value.offer_id!=='string'||!value.offer_id)))return bad();
  let q;try{q=financeQuote(value.quantity,value.unit_value_minor,value.ltv_percent as number,value.annual_rate_bps as number,value.term_months as number);}catch{return bad();}
  if(Object.entries(q).some(([k,v])=>value[k]!==v)||value.reservation_active!==['APPROVED','DISBURSED','REPAID'].includes(String(value.state))||
   value.outstanding_principal_minor!==(value.state==='DISBURSED'?value.principal_minor:'0')||value.amount_due_minor!==(value.state==='DISBURSED'?value.repayment_minor:'0'))return bad();

@@ -125,3 +125,19 @@ test('research distinguishes illustrative assumptions from sourced ledger observ
  assert.match(html,/Configured property reference/);assert.match(html,/Curated demonstration labels/);
  assert.match(html,/no independent appraisal|independent appraisal/);assert.match(html,/Explainable investment insights/);
 });
+
+test('investor loan details never render lender decisions; lender receives state-appropriate controls',()=>{
+ const base={id:'loan',quantity:1,state:'ASSESSED',ltv_percent:60,reservation_active:false,collateral_value_minor:'1000000',principal_minor:'600000',interest_minor:'60000',repayment_minor:'660000',outstanding_principal_minor:'0',amount_due_minor:'0',assessment:null,timeline:[]};
+ const investor=renderToStaticMarkup(h(LoanDetails,{loan:base,onAction:()=>{},role:'INVESTOR'}));
+ assert.doesNotMatch(investor,/Simulate approval|Reject application|Simulate disbursement/);
+ const lender=renderToStaticMarkup(h(LoanDetails,{loan:base,onAction:()=>{},role:'LENDER',canRepay:false}));
+ assert.match(lender,/Simulate approval/);assert.match(lender,/Reject application/);assert.doesNotMatch(lender,/Simulate full repayment/);
+});
+
+const {default:App}=await import('../src/App.tsx');
+test('login renders exactly Investor and Lender role cards without a separate issuer account',()=>{
+ const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,{initialEntries:['/login']},h(AppProvider,null,h(App)))));
+ assert.equal((html.match(/name="demo-role"/g)||[]).length,2);
+ assert.match(html,/value="INVESTOR"/);assert.match(html,/value="LENDER"/);assert.doesNotMatch(html,/value="ISSUER"/);cache.clear();
+});

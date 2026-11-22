@@ -4,6 +4,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import Settings
 from app.database import Base, prepare_database_directory
+from app.wallet import DemoCashAccount, DemoCashEntry  # noqa: F401
 from app.registration import LedgerOperation  # noqa: F401
 from app.properties import models  # noqa: F401 -- register migration metadata
 

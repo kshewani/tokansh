@@ -13,6 +13,8 @@ from app.dependencies import DemoActor, demo_actor, get_session
 from app.errors import ApplicationError, success
 from app.properties.models import ApplicationOperation
 from app.transfers import Identifier
+from app.lenders import LENDERS, DEFAULT_LENDER, lender, terms
+from app.wallet import MAX_CASH, change
 
 RESERVED = {'APPROVED', 'DISBURSED', 'REPAID'}
 TYPE = 'SIMULATED_FINANCING'
@@ -22,6 +24,8 @@ class FinancingRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     property_id: Identifier
     asset_class: Literal['ANSH'] = 'ANSH'
+    lender_id: str = DEFAULT_LENDER
+    offer_id: str = 'axim-standard'
     quantity: Annotated[int, Field(ge=1, le=9007199254740991)]
     unit_value_minor: Annotated[str, Field(pattern=r'^[1-9][0-9]{0,11}$')] = '1000000'
     ltv_percent: Annotated[int, Field(ge=20, le=75)] = 60
@@ -36,6 +40,8 @@ def quote(command):
         raise ApplicationError(422, 'INVALID_REQUEST', 'The illustrative loan must be at least one paise.')
     # Simple fixed-term interest, half-up to one paise; no accrual or compounding.
     interest = (principal * command.annual_rate_bps * command.term_months + 60000) // 120000
+    if principal + interest > MAX_CASH:
+        raise ApplicationError(422, 'INVALID_AMOUNT', 'Loan repayment exceeds the demo cash limit.')
     return dict(collateral_value_minor=str(collateral), principal_minor=str(principal),
                 interest_minor=str(interest), repayment_minor=str(principal + interest), currency='INR')
 
@@ -84,18 +90,26 @@ class FinancingService:
                     eligible_simulated=max(0, balance['quantity'] - reserved),
                     reservation_shortfall=reserved > balance['quantity'], on_chain_lock=False)
 
-    def list(self, actor):
+    def list(self, actor, lender_id=DEFAULT_LENDER):
+        if actor.role == 'LENDER':
+            lender(lender_id)
         with self.database.sessions() as session:
             rows = self.rows(session, None if actor.role == 'LENDER' else actor.user_id)
-            return [self.data(row) for row in sorted(rows, key=lambda r: r.created_at, reverse=True)]
+            return [data for row in sorted(rows, key=lambda r: r.created_at, reverse=True)
+                    if (data := self.data(row)) and (actor.role != 'LENDER' or data.get('lender_id') == lender_id)]
 
-    def get(self, session, loan_id, actor):
+    def get(self, session, loan_id, actor, lender_id=DEFAULT_LENDER):
         row = session.get(ApplicationOperation, loan_id)
         if row is None or not row.status.startswith('FIN_'):
             raise ApplicationError(404, 'RESOURCE_NOT_FOUND', 'Financing application was not found.')
         if row.actor_id != actor.user_id and actor.role != 'LENDER':
             raise ApplicationError(404, 'RESOURCE_NOT_FOUND', 'Financing application was not found.')
-        return row, self.data(row)
+        data = self.data(row)
+        if actor.role == 'LENDER':
+            lender(lender_id)
+            if data.get('lender_id') != lender_id:
+                raise ApplicationError(403, 'WRONG_LENDER', 'Application is not assigned to this demo lender workspace.')
+        return row, data
 
     @staticmethod
     def event(data, state, actor):
@@ -108,7 +122,6 @@ class FinancingService:
             raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'Only the investor may apply for financing.')
         encoded = json.dumps(command.model_dump(), sort_keys=True, separators=(',', ':'))
         digest = hashlib.sha256(('POST /api/v1/financing/applications\n' + encoded).encode()).hexdigest()
-        valuation = quote(command)
         # Network I/O precedes the short database write lock.
         balance = self.gateway.balance(command.property_id, actor.user_id, correlation)
         with self.database.sessions() as session:
@@ -116,14 +129,23 @@ class FinancingService:
             existing = session.scalar(select(ApplicationOperation).where(
                 ApplicationOperation.actor_id == actor.user_id, ApplicationOperation.idempotency_key == key))
             if existing:
-                if existing.request_hash != digest:
+                # Old clients must be able to replay an unchanged pre-catalogue request.
+                legacy_body = command.model_dump(exclude={'lender_id', 'offer_id'})
+                legacy_digest = hashlib.sha256(('POST /api/v1/financing/applications\n' +
+                    json.dumps(legacy_body, sort_keys=True, separators=(',', ':'))).encode()).hexdigest()
+                legacy_replay = (not {'lender_id', 'offer_id'} & command.model_fields_set
+                    and existing.status.startswith('FIN_') and 'lender_id' not in self.data(existing) and existing.request_hash == legacy_digest)
+                if existing.request_hash != digest and not legacy_replay:
                     raise ApplicationError(409, 'IDEMPOTENCY_CONFLICT', 'This request key was used with different parameters.')
                 return self.data(existing)
+            snapshot = terms(command)
+            valuation = quote(command)
             if command.quantity > balance['quantity'] - self.reserved(session, actor.user_id, command.property_id):
                 raise ApplicationError(409, 'INSUFFICIENT_COLLATERAL', 'Requested units exceed currently eligible simulated collateral.')
             loan_id = str(uuid4())
             data = dict(type=TYPE, id=loan_id, borrower_id=actor.user_id, **command.model_dump(), **valuation,
                         simulated=True, on_chain_lock=False, reservation_active=False,
+                        terms_snapshot=snapshot, reviewer_context=None,
                         assessment=None, outstanding_principal_minor='0', amount_due_minor='0',
                         created_at=now(), timeline=[])
             self.event(data, 'APPLIED', actor)
@@ -133,22 +155,25 @@ class FinancingService:
             session.commit()
             return data
 
-    def action(self, loan_id, action, actor, correlation):
-        if action not in {'assess', 'approve', 'disburse', 'repay', 'release'}:
+    def action(self, loan_id, action, actor, correlation, lender_id=DEFAULT_LENDER):
+        if action not in {'assess', 'approve', 'reject', 'disburse', 'repay', 'release'}:
             raise ApplicationError(404, 'RESOURCE_NOT_FOUND', 'Financing action was not found.')
+        required_role = 'INVESTOR' if action in {'repay', 'release'} else 'LENDER'
+        if actor.role != required_role:
+            raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'Investor repayment/release and lender decisions require their respective demo roles.')
         with self.database.sessions() as session:
-            _, initial = self.get(session, loan_id, actor)
+            _, initial = self.get(session, loan_id, actor, lender_id)
         # A new approval MUST recheck holdings, even following an earlier assessment.
         balance = None
         if action in {'assess', 'approve', 'disburse'}:
             balance = self.gateway.balance(initial['property_id'], initial['borrower_id'], correlation)
         with self.database.sessions() as session:
             session.connection().exec_driver_sql('BEGIN IMMEDIATE')
-            row, data = self.get(session, loan_id, actor)
-            target = dict(assess='ASSESSED', approve='APPROVED', disburse='DISBURSED', repay='REPAID', release='RELEASED')[action]
+            row, data = self.get(session, loan_id, actor, lender_id)
+            target = dict(assess='ASSESSED', approve='APPROVED', reject='REJECTED', disburse='DISBURSED', repay='REPAID', release='RELEASED')[action]
             if data['state'] == target:
                 return data  # Same action has no additional effect or timeline entry.
-            previous = dict(assess='APPLIED', approve='ASSESSED', disburse='APPROVED', repay='DISBURSED', release='REPAID')[action]
+            previous = dict(assess='APPLIED', approve='ASSESSED', reject=data['state'] if data['state'] in {'APPLIED', 'ASSESSED'} else None, disburse='APPROVED', repay='DISBURSED', release='REPAID')[action]
             if data['state'] != previous:
                 raise ApplicationError(409, 'INVALID_FINANCING_STATE', 'This action does not follow the current financing stage.')
             if action in {'repay', 'release'} and actor.user_id != data['borrower_id']:
@@ -165,13 +190,23 @@ class FinancingService:
                     if data['reservation_active']:
                         raise ApplicationError(409, 'HOLDINGS_CHANGED', 'Current holdings no longer cover this simulated reservation; operator review is required.')
                     target = 'REJECTED'
+            if actor.role == 'LENDER':
+                data['reviewer_context'] = dict(actor_id=actor.user_id, actor_role=actor.role,
+                    lender_id=lender_id, reviewed_at=now(), demo_identity=True)
             if target == 'APPROVED':
                 data['reservation_active'] = True
             if target == 'DISBURSED':
+                # New transitions only. Legacy already-DISBURSED records return above without credit.
+                entry = change(session, data['borrower_id'], 'DISBURSEMENT', int(data['principal_minor']),
+                               'loan:disburse:' + loan_id, loan_id)
+                data['wallet_disbursement_entry_id'] = entry['id']
                 data['outstanding_principal_minor'] = data['principal_minor']
                 data['amount_due_minor'] = data['repayment_minor']
                 data['disbursed_at'] = now()
             if target == 'REPAID':
+                entry = change(session, data['borrower_id'], 'REPAYMENT', int(data['amount_due_minor']),
+                               'loan:repay:' + loan_id, loan_id)
+                data['wallet_repayment_entry_id'] = entry['id']
                 data['outstanding_principal_minor'] = '0'
                 data['amount_due_minor'] = '0'
             if target == 'RELEASED':
@@ -192,9 +227,14 @@ def service(request):
     return FinancingService(request.app.state.database, request.app.state.transfer_gateway)
 
 
+@router.get('/lenders', response_model=None)
+def lender_catalogue(request: Request, actor: Actor) -> dict:
+    return success(request, [item.model_dump(mode='json') for item in LENDERS])
+
+
 @router.get('/applications', dependencies=[Ready])
-def list_financing(request: Request, actor: Actor):
-    return success(request, service(request).list(actor))
+def list_financing(request: Request, actor: Actor, lender_id: str = DEFAULT_LENDER):
+    return success(request, service(request).list(actor, lender_id))
 
 
 @router.get('/eligibility/{property_id}', dependencies=[Ready])
@@ -211,5 +251,5 @@ def apply_financing(command: FinancingRequest, request: Request, actor: Actor,
 
 
 @router.post('/applications/{loan_id}/{action}', dependencies=[Ready])
-def financing_action(loan_id: UUID, action: str, request: Request, actor: Actor):
-    return success(request, service(request).action(str(loan_id), action, actor, request.state.correlation_id))
+def financing_action(loan_id: UUID, action: str, request: Request, actor: Actor, lender_id: str = DEFAULT_LENDER):
+    return success(request, service(request).action(str(loan_id), action, actor, request.state.correlation_id, lender_id))

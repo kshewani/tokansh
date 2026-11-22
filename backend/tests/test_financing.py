@@ -35,8 +35,9 @@ def apply(client,key='finance-one',**changes):
     return response.json()['data']
 
 
-def action(client,loan,kind,headers=INVESTOR):
-    response=client.post(f"/api/v1/financing/applications/{loan['id']}/{kind}",headers=headers,json={})
+def action(client,loan,kind,headers=None, lender_id='axim-bank'):
+    headers = headers or (INVESTOR if kind in {'repay', 'release'} else LENDER)
+    response=client.post(f"/api/v1/financing/applications/{loan['id']}/{kind}",headers=headers,json={},params={'lender_id':lender_id})
     assert response.status_code==200,response.text
     return response.json()['data']
 
@@ -52,6 +53,7 @@ def test_full_simulated_lifecycle_persistence_and_unchanged_ownership(client,app
     assert loan['principal_minor']=='600000' and loan['interest_minor']=='60000' and loan['repayment_minor']=='660000'
     assert loan['simulated'] and loan['on_chain_lock'] is False
     assert apply(client)==loan
+    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**INVESTOR,'Idempotency-Key':'interest'})
     for kind,state in [('assess','ASSESSED'),('approve','APPROVED'),('disburse','DISBURSED'),('repay','REPAID'),('release','RELEASED')]:
         loan=action(client,loan,kind)
         assert loan['state']==state
@@ -105,6 +107,7 @@ def test_repayment_ordering_and_transferable_reservation_shortfall(client,balanc
     assert loan['amount_due_minor']=='660000'
     response=client.post(f"/api/v1/financing/applications/{loan['id']}/repay",headers=LENDER)
     assert response.status_code==403
+    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**INVESTOR,'Idempotency-Key':'interest'})
     loan=action(client,loan,'repay')
     assert action(client,loan,'repay')==loan and eligible(client)['reserved_simulated']==1
 

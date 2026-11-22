@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import {cn} from '../../utils/cn';
 export function Card({children,className='',title,description,action}:{children:ReactNode;className?:string;title?:string;description?:string;action?:ReactNode}){
- return <section className={cn('rounded-xl border border-slate-200 bg-white p-5 shadow-card',className)}>
+ return <section className={cn('rounded-2xl border border-slate-200 bg-white p-5 shadow-card',className)}>
  {title&&<div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-bold text-[#102B4E]">{title}</h2>{description&&<p className="mt-1 text-xs text-slate-500">{description}</p>}</div>{action}</div>}{children}</section>;
 }
 export function SectionHeading({title,description,action}:{title:string;description:string;action?:ReactNode}){

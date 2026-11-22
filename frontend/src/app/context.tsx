@@ -21,7 +21,7 @@ type Context={
 const ctx=createContext<Context|null>(null);
 export function AppProvider({children}:{children:ReactNode}){
  const [demoSession,setDemoSession]=useState<Role|null>(()=>readDemoSession());
- const [role,setRoleState]=useState<Role>(()=>readDemoSession()||'ISSUER');
+ const [role,setRoleState]=useState<Role>(()=>readDemoSession()||'INVESTOR');
  const [phase,setPhase]=useState<Phase>('ONBOARDING');
  const [message,notify]=useState<Message>(null);
  const queryClient=useQueryClient();
@@ -42,7 +42,7 @@ export function AppProvider({children}:{children:ReactNode}){
   onError:(error)=>notify({kind:'error',text:errorFeedback(error)})
  });
  const login=(value:Role)=>{writeDemoSession(value);setRoleState(value);setDemoSession(value);setPhase('ONBOARDING');notify(null);};
- const logout=()=>{clearDemoSession();setDemoSession(null);setRoleState('ISSUER');setPhase('ONBOARDING');notify(null);queryClient.clear();};
+ const logout=()=>{clearDemoSession();setDemoSession(null);setRoleState('INVESTOR');setPhase('ONBOARDING');notify(null);queryClient.clear();};
  const preview=useMemo(()=>previewData(API_MODE,phase),[phase]);
  // A failed/refetching observation must not leave an old CONNECTED badge visible.
  const systemStatus=health.isSuccess&&!health.isFetching?health.data:null;

@@ -213,60 +213,96 @@ POSTs automatically. No React screen is enabled by this change. The running back
 has not been restarted; deployment/configuration needs a separately authorized
 checkpoint. No live transfers were executed during implementation.
 
-## M5 — ANSH-backed financing simulation
+## Financing and demo cash wallet — local hackathon only
 
-This milestone deliberately implements **application-state reservations only**.
-There is no blockchain pledge/lock, legal security interest, lender integration,
-real disbursement or repayment. Reserved units remain transferable on DRUNIX.
-M4 transfer/balance calculations are unchanged. REIT units are not eligible.
+All routes use `{data,meta}` / structured error envelopes and existing
+`X-Demo-Role: INVESTOR` or `LENDER`. Demo-role headers are spoofable local workspace
+selection, **not production authentication**. Gateway secrets remain server-side.
+No new credentials are required. Production execution is disabled.
 
-All routes use existing `X-Demo-Role` identities (`INVESTOR` / `LENDER`), existing
-server-side Gateway configuration, and the standard `{data,meta}` envelope:
-
-| Method | Endpoint | Purpose |
+| Method | Endpoint | Role / behavior |
 |---|---|---|
-| GET | `/api/v1/financing/eligibility/{property_id}` | Investor's fresh DRUNIX balance, simulated reservations and simulation-only eligible units |
-| GET | `/api/v1/financing/applications` | Investor's own saved simulations; lender sees all |
-| POST | `/api/v1/financing/applications` | Investor applies; requires `Idempotency-Key` |
-| POST | `/api/v1/financing/applications/{id}/{action}` | `assess`, `approve`, `disburse`, `repay`, `release` |
+| GET | `/api/v1/financing/lenders` | Either role; three fictional lenders and illustrative offers |
+| GET | `/api/v1/financing/eligibility/{property_id}` | Investor; fresh DRUNIX ownership and global simulation reservations |
+| GET | `/api/v1/financing/applications` | Investor's own loans; lender's selected workspace queue |
+| POST | `/api/v1/financing/applications` | Investor; `Idempotency-Key` required |
+| POST | `/api/v1/financing/applications/{id}/assess`, `/approve`, `/reject`, `/disburse` | Lender only; assigned institution only |
+| POST | `/api/v1/financing/applications/{id}/repay`, `/release` | Borrower only; full wallet repayment, then separate reservation release |
+| GET | `/api/v1/demo-wallet` | Investor's simulated INR cash balance |
+| GET | `/api/v1/demo-wallet/activity` | Investor's saved simulated cash entries |
+| POST | `/api/v1/demo-wallet/fund` | Explicit Add Demo Funds; `Idempotency-Key` required |
+| POST | `/api/v1/demo-wallet/withdraw` | Simulated bank withdrawal; `Idempotency-Key` required |
 
-Example application: `property_id` is the existing registered UUID, `asset_class`
-is `ANSH`, `quantity: 1`, `unit_value_minor: "1000000"` (illustrative INR 10,000),
-`ltv_percent: 60`, `annual_rate_bps: 1000` (illustrative 10%), `term_months: 12`.
-Advance rate is configurable from 20–75%; rate from 1–3000 basis points, term 1–36
-months. The UI exposes a smaller set of demo terms. REIT/unknown fields fail validation.
+Lender queue and decision requests accept `?lender_id=axim-bank`, `real-finance`
+or `horizon-credit`. The server validates this allowlist and application assignment.
+Omitting the parameter defaults to `axim-bank` for existing client compatibility.
+The single LENDER persona can select any listed institution; this does not establish
+real institutional membership or tenant isolation. Investors cannot self-assess,
+approve, reject or disburse, even when repeating an already-completed action.
 
-Workflow: APPLIED → ASSESSED → APPROVED → DISBURSED → REPAID → RELEASED, with
-REJECTED when fresh holdings/reservations do not support assessment/approval.
-Every stage records a timestamp, acting demo role and `simulated: true`.
-The investor may explicitly trigger simulated lender steps for a one-person demo;
-the Lender console may also assess/approve/disburse. Only the borrower confirms
-repayment/release. These buttons do not represent independent lender authorization.
+Application example (`X-Demo-Role: INVESTOR`, stable `Idempotency-Key`):
 
-Persistence reuses `application_operations`: `FIN_*` workflow statuses and typed
-`SIMULATED_FINANCING` JSON records contain terms, quote, assessment, reservation,
-amounts due and timeline. No migration or new database is needed. Preserve the
-existing persistent SQLite file. Application IDs are off-chain UUIDs, never ledger
-transaction IDs. Same actor/key/body returns the existing application; conflicts
-fail. Repeating a completed stage has no extra effect. No automatic mutation retries.
+```json
+{"property_id":"f6169750-4676-4e99-887f-2bc5471bd518","asset_class":"ANSH","quantity":1,"lender_id":"axim-bank","offer_id":"axim-standard","unit_value_minor":"1000000","ltv_percent":60,"annual_rate_bps":1000,"term_months":12}
+```
 
-Approval and assessment read holdings afresh through the existing **read-only**
-Gateway balance client. A short `BEGIN IMMEDIATE` transaction serializes reservation
-checks/updates across applications. Network I/O does not hold this write lock.
-APPROVED/DISBURSED/REPAID reserve units within this simulation; full repayment leaves
-the reservation until an explicit release. Concurrent approvals cannot reserve the
-same units twice in the application database. No blockchain ownership is written
-or reduced, and these reservations do not alter M4 transferable balances.
-If a later transfer reduces holdings, eligibility flags a reservation shortfall;
-simulated disbursement is blocked when fresh holdings no longer cover it. This is
-not an atomic on-chain guarantee: holdings can change after a balance observation.
+The catalogue supplies exact rates, maximum LTV and supported tenures. Requests
+must match the selected offer's rate/tenure and stay within its LTV limit; REITs
+are rejected. Old request shapes default to Axim's standard offer. Invalid terms
+are rejected rather than silently repriced. Each new JSON loan saves `lender_id`,
+`offer_id`, immutable `terms_snapshot` and latest `reviewer_context`; its timeline
+records acting roles and timestamps. Unit values, offers, decisions and all cash
+movements are illustrative. Simple fixed-term interest uses integer-paise half-up
+rounding; principal rounds down. No accrual, fees or partial repayments.
 
-Money uses integer paise, serialized as strings. Illustrative collateral value is
-quantity × configured unit value; principal is floor(collateral × LTV / 100).
-Simple fixed-term interest is rounded half-up to a paise:
-`principal × annual_rate_bps × term_months / 120000`. No daily accrual, compounding,
-fees or partial repayments are modelled. Repayment settles the entire principal
-plus the quoted fixed-term interest; all money movements remain simulated.
+Workflow: APPLIED → ASSESSED → APPROVED → DISBURSED → REPAID → RELEASED.
+Lenders may reject APPLIED/ASSESSED requests; inadequate holdings also reject them.
+Approval rechecks fresh DRUNIX holdings before a short `BEGIN IMMEDIATE` transaction
+which checks reservations **across every lender and legacy loan**. Network I/O
+holds no SQLite write lock. APPROVED/DISBURSED/REPAID reserve units until release.
+These are application reservations, **not blockchain locks or legal pledges**:
+reserved ANSH remain transferable on DRUNIX. A read can become stale after it is
+observed; there is no atomic ledger pledge. M4 balances/transfers are unchanged.
 
-Focused tests use only temporary SQLite and mocked balance reads. No live finance
-simulation, blockchain mutation or service restart was performed during implementation.
+Disbursement credits principal once in the same transaction as the loan update.
+Repayment debits the full quoted amount and updates the loan atomically; insufficient
+cash leaves both unchanged. Repayment retains the reservation until explicit release.
+Repeated completed actions have no additional effect. Unique `(loan_id,kind)` entries
+also protect against duplicate disbursement/repayment. No global exactly-once claim
+is made outside this trusted SQLite service.
+
+Wallet mutation body: `{"amount_minor":"60000"}` (integer paise string, no decimals).
+`fund` explicitly creates simulated money; `withdraw` debits it and records
+`SIMULATED_COMPLETED`, without contacting a bank or collecting bank credentials.
+All entry responses contain an off-chain `id`, `kind`, `amount_minor`,
+`balance_after_minor`, `loan_id`, `created_at`, `currency: "INR"`, `simulated: true`
+and `status: "SIMULATED_COMPLETED"`. Wallet balances are strings. Amounts and total
+cash are capped at 9,007,199,254,740,991 paise. A stable wallet key returns the original
+entry; reusing it with a different amount/action conflicts. Top-ups and withdrawals
+share a key namespace; internal loan keys are separate. Do not retry mutations with
+new keys after an uncertain HTTP outcome; reuse the original key or inspect history.
+
+### Additive migration and compatibility
+
+Migration `0003_demo_cash` adds `demo_cash_accounts` and `demo_cash_entries` with
+foreign keys, nonnegative balance checks, bounded amounts and uniqueness constraints.
+Application JSON stays in `application_operations`; historical records are not
+rewritten. The migration **does not credit existing DISBURSED loans** or infer cash
+from synthetic distributions. An empty wallet reads as zero without creating an account.
+Legacy loans remain visible to their borrower and reserve units globally. A legacy
+DISBURSED loan can be repaid using explicitly added demo funds, then released.
+Loans without a lender assignment cannot enter lender decision queues or be newly
+disbursed; deliberate legacy assignment would require a separately reviewed change.
+
+A separately authorized operator must back up the persistent database and execute
+`cd backend && .venv/bin/alembic upgrade head` with the intended existing DATABASE_URL
+before deploying this version. No startup migration is performed. Readiness requires
+`0003_demo_cash`; an old schema fails closed. No live database migration or service
+restart was performed during implementation. Existing audited M3 runbook schema
+assertions for revision 0002 require a separate update before reuse with this schema.
+
+Frontend follow-up: add lender comparison/workspace selection, separate lender decision
+controls from investor actions, and connect explicit wallet funding/withdrawal/repayment.
+Current M5 investor-side lender buttons will correctly return 403. No browser secrets
+or new Gateway/chaincode endpoints are needed. Financing and cash remain simulated;
+only fresh ANSH ownership reads are DRUNIX-backed.

@@ -10,7 +10,7 @@ export function readDemoSession(store?:SessionStorageLike|null):Role|null {
  try {
   const storage=store===undefined?(typeof window==='undefined'?null:window.sessionStorage):store;
   const role=storage?.getItem(DEMO_SESSION_KEY);
-  return isDemoRole(role)?role:null;
+  return role==='INVESTOR'||role==='LENDER'?role:null;
  }catch {return null;}
 }
 export function writeDemoSession(role:Role,store?:SessionStorageLike|null):void {

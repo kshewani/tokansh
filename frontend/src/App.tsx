@@ -4,7 +4,8 @@ import type {ReactNode} from 'react';
 import {ArrowRight,Building2,LockKeyhole,ShieldCheck} from 'lucide-react';
 import {useApp} from './app/context';
 import type {Role} from './demo/scenario';
-import {roleOptions} from './demo/scenario';
+import {workspaceRoles as roleOptions,landing} from './app/workspace';
+import {DemoWallet,Activity,PropertyWorkspace,PortfolioWorkspace} from './pages/Workspace';
 import {Shell} from './components/Shell';
 import {Button} from './components/ui/button';
 import {Card} from './components/ui/card';
@@ -21,18 +22,18 @@ function RequireDemoSession(){
 }
 function Guard({roles,children}:{roles:Role[];children:ReactNode}){
  const {role}=useApp();
- return roles.includes(role)?<>{children}</>:<Navigate to="/overview" replace/>;
+ return roles.includes(role)?<>{children}</>:<Navigate to={landing(role)} replace/>;
 }
 function Login(){
  const {demoSession,role,login,mode}=useApp();
- const [selectedRole,setSelectedRole]=useState<Role>(role);
+ const [selectedRole,setSelectedRole]=useState<Role>(role==='LENDER'?'LENDER':'INVESTOR');
  const navigate=useNavigate();
- if(demoSession)return <Navigate to="/overview" replace/>;
+ if(demoSession)return <Navigate to={landing(role)} replace/>;
  const selected=roleOptions.find(item=>item.role===selectedRole);
  function enter(event:React.FormEvent<HTMLFormElement>){
   event.preventDefault();
   login(selectedRole);
-  navigate('/overview',{replace:true});
+  navigate(landing(selectedRole),{replace:true});
  }
  return <main className="grid min-h-screen grid-cols-1 bg-[#F4F6F9] lg:grid-cols-[.9fr_1.1fr]">
   <section className="flex min-h-[290px] flex-col justify-between bg-[#102B4E] px-7 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
@@ -64,7 +65,7 @@ function Login(){
      </form>
     </Card>
     <div className="mt-5"><PreviewWarning compact connected={mode==='real'}/></div>
-    <p className="mt-4 text-center text-xs leading-5 text-slate-500">This is a session-based preview gate, not password authentication. Secure identity and access checks will be handled by the Python backend.</p>
+    <p className="mt-4 text-center text-xs leading-5 text-slate-500">Local demo access · no real lending, payments or bank settlement.</p>
    </div>
   </section>
  </main>;
@@ -75,11 +76,13 @@ export default function App(){
   <Route element={<RequireDemoSession/>}>
    <Route element={<Shell/>}>
     <Route path="/overview" element={<Overview/>}/>
+    <Route path="/wallet" element={<Guard roles={['INVESTOR']}><DemoWallet/></Guard>}/>
+    <Route path="/properties" element={<Guard roles={['INVESTOR']}><PropertyWorkspace/></Guard>}/>
     <Route path="/registry" element={<Guard roles={['ISSUER']}><Registry/></Guard>}/>
     <Route path="/issuance" element={<Guard roles={['ISSUER']}><Issuance/></Guard>}/>
     <Route path="/marketplace" element={<Guard roles={['ISSUER','INVESTOR']}><Marketplace/></Guard>}/>
-    <Route path="/portfolio" element={<Guard roles={['INVESTOR']}><Portfolio/></Guard>}/>
-    <Route path="/transactions" element={<Audit mode="transactions"/>}/>
+    <Route path="/portfolio" element={<Guard roles={['INVESTOR']}><PortfolioWorkspace/></Guard>}/>
+    <Route path="/transactions" element={<Activity/>}/>
     <Route path="/intelligence" element={<Guard roles={['ISSUER','INVESTOR']}><Intelligence/></Guard>}/>
     <Route path="/collateral" element={<Guard roles={['INVESTOR','LENDER']}><Collateral/></Guard>}/>
     <Route path="/lending" element={<Guard roles={['INVESTOR','LENDER']}><Lending/></Guard>}/>

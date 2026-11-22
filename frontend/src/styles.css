@@ -16,3 +16,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .page-enter{animation:fade .15s ease-out}
 @keyframes fade{from{opacity:.35}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+
+:root{--navy:#10233F;--blue:#3478F6;--emerald:#10B981;--surface:#fff;--canvas:#F7F9FC;background:var(--canvas);color:var(--navy)}
+*{box-sizing:border-box}main,section,article{min-width:0}button,a,input,select{touch-action:manipulation}input,select{max-width:100%}summary{cursor:pointer;padding:.5rem 0}details{overflow-wrap:anywhere}
+.premium-hero{background:#10233F;color:white;border-radius:1.5rem;padding:clamp(1.25rem,3vw,2.5rem)}
+.step-pill{display:inline-flex;align-items:center;gap:.5rem;border-radius:999px;padding:.5rem .85rem;background:#edf3fe;color:#234d93;font-size:.75rem;font-weight:700}
+@media(max-width:767px){button,input,select{min-height:44px}.data-table-wrap{max-width:100%;overflow:auto}h1{font-size:1.6rem!important}dl>div{flex-wrap:wrap;gap:.5rem}}

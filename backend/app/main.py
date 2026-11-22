@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.transfers import TransferGateway, router as transfers_router
 from app.financing import router as financing_router
+from app.wallet import router as wallet_router
 from app.config import Settings, get_settings
 from app.database import Database
 from app.errors import error_response, register_handlers
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(properties_router)
     api.include_router(transfers_router)
     api.include_router(financing_router)
+    api.include_router(wallet_router)
     app.include_router(api)
     app.include_router(system_router)
     app.include_router(diagnostic_router)

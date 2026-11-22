@@ -190,3 +190,50 @@ Focused tests cover REIT totals, exact paise arithmetic, fresh-read/no-fallback
 behavior, explicit local completion/history integrity, deterministic insights and
 rendered labels/trading boundaries. Only mocked requests are used. No live payouts,
 blockchain writes, service restarts, credentials or external integrations are added.
+
+## Two-workspace demo experience
+
+Investor opens Portfolio Overview; Lender opens Application Review. Historical
+issuer UUIDs are retained: My Portfolio → My Properties shows managed issuer
+inventory separately, without adding it to personal ANSH. Connected onboarding
+and issuance remain unavailable; no unsupported mutation is exposed.
+
+Borrow loads the backend lender catalogue, compares offers, submits a stable-key
+application, and tracks its saved lifecycle. Lender workspace selection persists
+in session storage and scopes both queue queries and decisions. Investor screens
+never expose lender decisions. Local role/institution selection is demo access,
+not production authentication.
+
+Demo Wallet uses persisted backend cash for funding, withdrawal and full repayment.
+Cash requests keep their key in session storage until a confirmed response or a
+definitive rejection. After an uncertain response, review the original amount/action;
+never replace it with a fresh key. Cash is simulated INR; application reservations
+are not on-chain locks and ANSH remain transferable on DRUNIX.
+
+**Deployment dependency:** Pass 1 backend and explicitly authorized migration
+`0003_demo_cash` are required. This frontend performs no migrations. Until deployed,
+financing/wallet show unavailable/error feedback. Preview remains read-only and
+never substitutes its fixtures for Connected Mode data. REIT, income and research
+retain their M6 simulation boundaries. No backend secret is sent by the browser.
+
+Manual acceptance after separately authorized backend deployment:
+
+- At 360, 768 and 1440 px: check login, drawer, financial cards, forms and dialogs;
+  verify no page overflow, visible keyboard focus and Escape dismissal.
+- Select Investor; verify personal balance, managed inventory separation, Explore,
+  transfer progress and UNKNOWN reconciliation; do not initiate live transfers
+  without separate authorization.
+- Borrow: select units, compare catalogue offers, choose tenure, review and apply.
+  Confirm no lender actions appear in Investor workspace.
+- Select Lender; switch all three institutions, reload, verify selection persists
+  and each queue/actions match only the selected institution.
+- In an authorized simulation test, assess/approve/disburse once; verify one wallet
+  credit, withdrawal debit, explicit funding, full repayment debit and separate release.
+- Check unavailable backend, insufficient cash, rapid clicks, uncertain response
+  recovery, retained inputs, REIT exclusion and reservation-shortfall feedback.
+- Verify Income, REIT representations and research still label illustrative values;
+  technical transaction references stay expandable.
+
+Automated tests validate parsing, role actions, institution preference, rendering,
+exact paise handling and stable-key cash recovery. They do not establish live
+integration or browser layout acceptance.
