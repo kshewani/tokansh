@@ -5,11 +5,12 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
+from client_support import SyncASGIClient
 from pydantic import ValidationError
 
 from app.config import Settings
 from app.drunix import GatewayAdapter, get_gateway
+from app.auth import DemoIdentity
 from app.errors import ApplicationError
 
 ASSET = {"ID": "asset1", "Color": "blue", "Size": 5, "Owner": "test-only", "AppraisedValue": 300}
@@ -151,7 +152,7 @@ def test_system_status_reports_actual_read_connectivity_but_not_commit_readiness
     gateway = adapter(upstream)
     application.dependency_overrides[get_gateway] = lambda: gateway
     try:
-        with TestClient(application) as client:
+        with SyncASGIClient(application) as client:
             result = client.get("/api/v1/system/status").json()["data"]
             components = {c["name"]: c["status"] for c in result["components"]}
             assert components["Go gateway"] == "CONNECTED"
@@ -170,7 +171,7 @@ def test_disconnected_bridge_never_claims_network_connectivity(application):
     gateway = adapter(offline)
     application.dependency_overrides[get_gateway] = lambda: gateway
     try:
-        with TestClient(application) as client:
+        with SyncASGIClient(application) as client:
             components = {c["name"]: c["status"] for c in client.get("/api/v1/system/status").json()["data"]["components"]}
             assert components["Go gateway"] == "UNAVAILABLE"
             assert components["DRUNIX network connectivity"] == "UNKNOWN"
@@ -182,11 +183,13 @@ def test_diagnostic_route_is_admin_only_and_does_not_enable_business_routes(appl
     gateway = adapter(lambda request: response(request, observation()))
     application.dependency_overrides[get_gateway] = lambda: gateway
     try:
-        with TestClient(application) as client:
+        with SyncASGIClient(application) as client:
             path = "/api/v1/diagnostics/drunix/basic/assets"
             assert client.get(path).status_code == 401
-            assert client.get(path, headers={"X-Demo-Role": "INVESTOR"}).status_code == 403
-            result = client.get(path, headers={"X-Demo-Role": "ADMIN", "X-Correlation-ID": "diag-ref"})
+            assert client.get(path, headers={"X-Demo-Role": "INVESTOR"}).status_code == 401
+            token = application.state.sessions.create(DemoIdentity("admin", "Admin", "ADMIN",
+                                                                   "00000000-0000-4000-8000-000000000001"))
+            result = client.get(path, headers={"Authorization": "Bearer " + token, "X-Correlation-ID": "diag-ref"})
             assert result.status_code == 200
             assert result.json()["data"]["result"][0]["ID"] == "asset1"
             assert result.json()["meta"]["correlation_id"] == "diag-ref"
@@ -202,8 +205,10 @@ def test_real_private_gateway_integration(application):
         pytest.skip("opt-in real Go gateway read integration")
     assert application.state.settings.drunix_gateway_url == url
     gateway = application.state.gateway
-    with TestClient(application) as client:
-        result = client.get("/api/v1/diagnostics/drunix/basic/assets", headers={"X-Demo-Role": "ADMIN"})
+    with SyncASGIClient(application) as client:
+        token = application.state.sessions.create(DemoIdentity("admin", "Admin", "ADMIN",
+                                                               "00000000-0000-4000-8000-000000000001"))
+        result = client.get("/api/v1/diagnostics/drunix/basic/assets", headers={"Authorization": "Bearer " + token})
         assert result.status_code == 200, result.text
         data = result.json()["data"]
         assert sorted(a["ID"] for a in data["result"]) == [f"asset{i}" for i in range(1, 7)]

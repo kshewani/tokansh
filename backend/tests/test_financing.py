@@ -8,8 +8,6 @@ from app.financing import FinancingService, FinancingRequest, quote
 from app.dependencies import DEMO_ACTORS
 
 PID='f6169750-4676-4e99-887f-2bc5471bd518'
-INVESTOR={'X-Demo-Role':'INVESTOR'}
-LENDER={'X-Demo-Role':'LENDER'}
 BODY=dict(property_id=PID,asset_class='ANSH',quantity=1,unit_value_minor='1000000',ltv_percent=60,annual_rate_bps=1000,term_months=12)
 
 
@@ -30,20 +28,26 @@ def balances(application):
 
 
 def apply(client,key='finance-one',**changes):
-    response=client.post('/api/v1/financing/applications',json={**BODY,**changes},headers={**INVESTOR,'Idempotency-Key':key})
+    response=client.post('/api/v1/financing/applications',json={**BODY,**changes},headers={**auth(client,'Aarav'),'Idempotency-Key':key})
     assert response.status_code==201,response.text
     return response.json()['data']
 
 
+def auth(client, username):
+    response=client.post('/api/v1/auth/login',json={'username':username,'password':'test-password'})
+    assert response.status_code==200,response.text
+    return {'Authorization':'Bearer '+response.json()['data']['access_token']}
+
+
 def action(client,loan,kind,headers=None, lender_id='axim-bank'):
-    headers = headers or (INVESTOR if kind in {'repay', 'release'} else LENDER)
+    headers = headers or auth(client, 'Aarav' if kind in {'repay', 'release'} else lender_id)
     response=client.post(f"/api/v1/financing/applications/{loan['id']}/{kind}",headers=headers,json={},params={'lender_id':lender_id})
     assert response.status_code==200,response.text
     return response.json()['data']
 
 
 def eligible(client):
-    response=client.get('/api/v1/financing/eligibility/'+PID,headers=INVESTOR)
+    response=client.get('/api/v1/financing/eligibility/'+PID,headers=auth(client,'Aarav'))
     assert response.status_code==200,response.text
     return response.json()['data']
 
@@ -53,7 +57,7 @@ def test_full_simulated_lifecycle_persistence_and_unchanged_ownership(client,app
     assert loan['principal_minor']=='600000' and loan['interest_minor']=='60000' and loan['repayment_minor']=='660000'
     assert loan['simulated'] and loan['on_chain_lock'] is False
     assert apply(client)==loan
-    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**INVESTOR,'Idempotency-Key':'interest'})
+    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**auth(client,'Aarav'),'Idempotency-Key':'interest'})
     for kind,state in [('assess','ASSESSED'),('approve','APPROVED'),('disburse','DISBURSED'),('repay','REPAID'),('release','RELEASED')]:
         loan=action(client,loan,kind)
         assert loan['state']==state
@@ -73,11 +77,11 @@ def test_concurrent_approvals_cannot_reserve_same_units_twice(client,balances):
     loans=[apply(client,key='first',quantity=2),apply(client,key='second',quantity=2)]
     for loan in loans:action(client,loan,'assess')
     with ThreadPoolExecutor(max_workers=2) as pool:
-        decisions=list(pool.map(lambda loan:action(client,loan,'approve',LENDER),loans))
+        decisions=list(pool.map(lambda loan:action(client,loan,'approve',auth(client,'axim-bank')),loans))
     assert sorted(v['state'] for v in decisions)==['APPROVED','REJECTED']
     observation=eligible(client)
     assert observation['reserved_simulated']==2 and observation['eligible_simulated']==0
-    response=client.post('/api/v1/financing/applications',json=BODY,headers={**INVESTOR,'Idempotency-Key':'overlap'})
+    response=client.post('/api/v1/financing/applications',json=BODY,headers={**auth(client,'Aarav'),'Idempotency-Key':'overlap'})
     assert response.status_code==409
 
 
@@ -85,41 +89,43 @@ def test_holdings_rechecked_at_approval_and_unavailable_reads_fail_closed(client
     loan=apply(client);loan=action(client,loan,'assess')
     count=len(balances.calls)
     balances.unavailable=True
-    response=client.post(f"/api/v1/financing/applications/{loan['id']}/approve",headers=LENDER)
+    response=client.post(f"/api/v1/financing/applications/{loan['id']}/approve",headers=auth(client,'axim-bank'))
     assert response.status_code==503
-    assert client.get('/api/v1/financing/applications',headers=INVESTOR).json()['data'][0]['state']=='ASSESSED'
+    assert client.get('/api/v1/financing/applications',headers=auth(client,'Aarav')).json()['data'][0]['state']=='ASSESSED'
     balances.unavailable=False;balances.owned=0
-    loan=action(client,loan,'approve',LENDER)
+    loan=action(client,loan,'approve',auth(client,'axim-bank'))
     assert len(balances.calls)>count and loan['state']=='REJECTED' and not loan['reservation_active']
     assert eligible(client)['reserved_simulated']==0
 
 
 def test_repayment_ordering_and_transferable_reservation_shortfall(client,balances):
     loan=apply(client);loan=action(client,loan,'assess');loan=action(client,loan,'approve')
-    response=client.post(f"/api/v1/financing/applications/{loan['id']}/release",headers=INVESTOR)
+    response=client.post(f"/api/v1/financing/applications/{loan['id']}/release",headers=auth(client,'Aarav'))
     assert response.status_code==409 and eligible(client)['reserved_simulated']==1
     balances.owned=0  # Existing DRUNIX transfer controls do not enforce our reservation.
     observation=eligible(client)
     assert observation['reservation_shortfall'] and observation['eligible_simulated']==0
-    response=client.post(f"/api/v1/financing/applications/{loan['id']}/disburse",headers=LENDER)
+    response=client.post(f"/api/v1/financing/applications/{loan['id']}/disburse",headers=auth(client,'axim-bank'))
     assert response.status_code==409 and response.json()['error']['code']=='HOLDINGS_CHANGED'
-    balances.owned=2;loan=action(client,loan,'disburse',LENDER)
+    balances.owned=2;loan=action(client,loan,'disburse',auth(client,'axim-bank'))
     assert loan['amount_due_minor']=='660000'
-    response=client.post(f"/api/v1/financing/applications/{loan['id']}/repay",headers=LENDER)
+    response=client.post(f"/api/v1/financing/applications/{loan['id']}/repay",headers=auth(client,'axim-bank'))
     assert response.status_code==403
-    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**INVESTOR,'Idempotency-Key':'interest'})
+    client.post('/api/v1/demo-wallet/fund',json={'amount_minor':'60000'},headers={**auth(client,'Aarav'),'Idempotency-Key':'interest'})
     loan=action(client,loan,'repay')
     assert action(client,loan,'repay')==loan and eligible(client)['reserved_simulated']==1
 
 
 def test_reits_invalid_quantities_and_conflicting_keys_are_rejected(client,balances):
     for change in [dict(asset_class='REIT'),dict(quantity=0),dict(quantity=3),dict(ltv_percent=76)]:
-        response=client.post('/api/v1/financing/applications',json={**BODY,**change},headers={**INVESTOR,'Idempotency-Key':'invalid'})
+        response=client.post('/api/v1/financing/applications',json={**BODY,**change},headers={**auth(client,'Aarav'),'Idempotency-Key':'invalid'})
         assert response.status_code in (409,422)
     loan=apply(client)
-    response=client.post('/api/v1/financing/applications',json={**BODY,'quantity':2},headers={**INVESTOR,'Idempotency-Key':'finance-one'})
+    response=client.post('/api/v1/financing/applications',json={**BODY,'quantity':2},headers={**auth(client,'Aarav'),'Idempotency-Key':'finance-one'})
     assert response.status_code==409 and response.json()['error']['code']=='IDEMPOTENCY_CONFLICT'
-    assert client.get('/api/v1/financing/applications',headers={'X-Demo-Role':'ISSUER'}).status_code==403
+    meera_response = client.get('/api/v1/financing/applications',headers=auth(client,'Meera'))
+    assert meera_response.status_code == 200
+    assert meera_response.json()['data'] == []
     assert loan['state']=='APPLIED'
 
 

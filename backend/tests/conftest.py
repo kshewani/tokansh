@@ -3,10 +3,11 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.auth import DemoIdentity
 from app.main import create_app
+from client_support import SyncASGIClient
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -33,7 +34,7 @@ def application(settings):
 
 @pytest.fixture
 def client(application):
-    with TestClient(application) as client:
+    with SyncASGIClient(application) as client:
         yield client
 
 
@@ -44,5 +45,18 @@ def property_payload():
 
 
 @pytest.fixture
-def issuer_headers():
-    return {"X-Demo-Role": "ISSUER", "Idempotency-Key": "create-techpark-one", "X-Correlation-ID": "test-correlation"}
+def auth_headers(client):
+    def factory(username, password="test-password"):
+        response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+        assert response.status_code == 200, response.text
+        return {"Authorization": "Bearer " + response.json()["data"]["access_token"]}
+    return factory
+
+
+@pytest.fixture
+def issuer_headers(application):
+    # The issuer is intentionally not a public investor login. This fixture
+    # creates the existing issuer-only identity inside the test application.
+    identity = DemoIdentity("issuer", "Issuer", "ISSUER", "00000000-0000-4000-8000-000000000002")
+    token = application.state.sessions.create(identity)
+    return {"Authorization": "Bearer " + token, "Idempotency-Key": "create-techpark-one", "X-Correlation-ID": "test-correlation"}

@@ -1,8 +1,9 @@
 import {isRecord,RequestError,errorFeedback} from './client.ts';
 import type {RequestOptions} from './client.ts';
 
-// Existing protected asset and backend demo/recipient IDs; no new role or login.
-export const investorDemo={property:'f6169750-4676-4e99-887f-2bc5471bd518',issuer:'00000000-0000-4000-8000-000000000002',investor:'00000000-0000-4000-8000-000000000003',recipient:'00000000-0000-4000-8000-000000000005'} as const;
+// Existing protected asset and non-login recipient identity. The active
+// investor identity always comes from the authenticated backend session.
+export const investorDemo={property:'f6169750-4676-4e99-887f-2bc5471bd518',issuer:'00000000-0000-4000-8000-000000000002',recipient:'00000000-0000-4000-8000-000000000005'} as const;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const tx=/^[0-9a-f]{64}$/;
 const states=['PREPARING','PREPARED','SUBMISSION_PENDING','SUBMITTED','COMMITTED_VALID','COMMITTED_INVALID','UNKNOWN','FAILED','PAYMENT_FAILED'] as const;
@@ -32,8 +33,8 @@ export function parseTransfer(v:unknown,expected:TransferCommand,operationId?:st
  if(v.ownership_confirmed!==(v.state==='COMMITTED_VALID')||(v.state==='PAYMENT_FAILED'&&v.payment.status!=='FAILED'))return malformed();
  return v as TransferResult;
 }
-export function parseBalance(v:unknown,holder:string):Balance {
- if(!isRecord(v)||v.schema_version!==1||v.property_id!==investorDemo.property||v.holder_id!==holder||!integer(v.quantity)||v.source!=='DRUNIX_EVALUATE')return malformed(false);
+export function parseBalance(v:unknown,property:string,holder:string):Balance {
+ if(!isRecord(v)||v.schema_version!==1||v.property_id!==property||v.holder_id!==holder||!integer(v.quantity)||v.source!=='DRUNIX_EVALUATE')return malformed(false);
  return v as Balance;
 }
 export function displayState(state?:TransferState){
@@ -48,8 +49,8 @@ type Attempt={key:string;command:TransferCommand;operationId?:string;result?:Tra
 export type FlowSnapshot={attempt:Attempt|null;busy:boolean;error:string|null;blocked:boolean};
 type Store=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
 /** A single supervised browser session. Persist intent before dispatch, never auto-submit/retry. */
-export function createTransferFlow(request:ApiRequest,store:Store,role:'ISSUER'|'INVESTOR'|'LENDER',newKey=()=>crypto.randomUUID()){
- const slot='tokansh-transfer-v1:'+role;
+export function createTransferFlow(request:ApiRequest,store:Store,userId:string,newKey=()=>crypto.randomUUID()){
+ const slot='tokansh-transfer-v1:'+userId;
  let current:FlowSnapshot={attempt:null,busy:false,error:null,blocked:false};
  try {
   const saved=store.getItem(slot);
@@ -69,7 +70,7 @@ export function createTransferFlow(request:ApiRequest,store:Store,role:'ISSUER'|
  }
  function busy(value:boolean){current={...current,busy:value};listeners.forEach(f=>f());}
  function requireIdle(){if(current.busy||current.blocked)throw new RequestError(409,'OPERATION_PENDING','Resolve the current request first.');}
- const options={demoRole:role};
+ const options={};
  async function observe(reconcile:boolean){
   requireIdle();const a=current.attempt;
   if(!a?.operationId)throw new RequestError(409,'RECONCILIATION_REQUIRED','Keep the request key; the operator must locate the original operation.');

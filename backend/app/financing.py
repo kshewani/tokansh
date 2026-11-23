@@ -13,7 +13,7 @@ from app.dependencies import DemoActor, demo_actor, get_session
 from app.errors import ApplicationError, success
 from app.properties.models import ApplicationOperation
 from app.transfers import Identifier
-from app.lenders import LENDERS, DEFAULT_LENDER, lender, terms
+from app.lenders import LENDERS, DEFAULT_LENDER, terms
 from app.wallet import MAX_CASH, change
 
 RESERVED = {'APPROVED', 'DISBURSED', 'REPAID'}
@@ -92,7 +92,11 @@ class FinancingService:
 
     def list(self, actor, lender_id=DEFAULT_LENDER):
         if actor.role == 'LENDER':
-            lender(lender_id)
+            if actor.organization_id is None:
+                raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'The lender session has no organization.')
+            # The query parameter is retained for staged-client compatibility,
+            # but the authenticated session is authoritative.
+            lender_id = actor.organization_id
         with self.database.sessions() as session:
             rows = self.rows(session, None if actor.role == 'LENDER' else actor.user_id)
             return [data for row in sorted(rows, key=lambda r: r.created_at, reverse=True)
@@ -106,7 +110,9 @@ class FinancingService:
             raise ApplicationError(404, 'RESOURCE_NOT_FOUND', 'Financing application was not found.')
         data = self.data(row)
         if actor.role == 'LENDER':
-            lender(lender_id)
+            if actor.organization_id is None:
+                raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'The lender session has no organization.')
+            lender_id = actor.organization_id
             if data.get('lender_id') != lender_id:
                 raise ApplicationError(403, 'WRONG_LENDER', 'Application is not assigned to this demo lender workspace.')
         return row, data
@@ -192,7 +198,7 @@ class FinancingService:
                     target = 'REJECTED'
             if actor.role == 'LENDER':
                 data['reviewer_context'] = dict(actor_id=actor.user_id, actor_role=actor.role,
-                    lender_id=lender_id, reviewed_at=now(), demo_identity=True)
+                    lender_id=actor.organization_id, reviewed_at=now(), demo_identity=True)
             if target == 'APPROVED':
                 data['reservation_active'] = True
             if target == 'DISBURSED':

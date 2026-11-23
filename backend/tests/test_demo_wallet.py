@@ -7,31 +7,31 @@ from app.wallet import DemoCashAccount, DemoCashEntry
 from app.properties.models import ApplicationOperation
 from app.dependencies import DEMO_ACTORS
 from app.financing import FinancingService
-from test_financing import balances, apply, action, eligible, INVESTOR, LENDER, BODY  # noqa: F401
+from test_financing import balances, apply, action, auth, eligible, BODY  # noqa: F401
 
 
 def cash(client, kind, amount, key):
     return client.post('/api/v1/demo-wallet/'+kind, json={'amount_minor':str(amount)},
-                       headers={**INVESTOR,'Idempotency-Key':key})
+                       headers={**auth(client,'Aarav'),'Idempotency-Key':key})
 
 
 def balance(client):
-    return client.get('/api/v1/demo-wallet',headers=INVESTOR).json()['data']['balance_minor']
+    return client.get('/api/v1/demo-wallet',headers=auth(client,'Aarav')).json()['data']['balance_minor']
 
 
 def test_lender_catalogue_terms_and_authorization(client, balances):
-    catalogue=client.get('/api/v1/financing/lenders',headers=INVESTOR).json()['data']
+    catalogue=client.get('/api/v1/financing/lenders',headers=auth(client,'Aarav')).json()['data']
     assert [x['name'] for x in catalogue]==['Axim Bank','Real Finance','Horizon Credit']
     for change in [dict(lender_id='unknown'),dict(offer_id='real-flex'),dict(annual_rate_bps=1),dict(term_months=36),dict(ltv_percent=61)]:
-        r=client.post('/api/v1/financing/applications',json={**BODY,**change},headers={**INVESTOR,'Idempotency-Key':'bad'})
+        r=client.post('/api/v1/financing/applications',json={**BODY,**change},headers={**auth(client,'Aarav'),'Idempotency-Key':'bad'})
         assert r.status_code==422,r.text
     loan=apply(client)
     for kind in ('assess','approve','reject','disburse'):
-        assert client.post(f"/api/v1/financing/applications/{loan['id']}/{kind}",headers=INVESTOR).status_code==403
+        assert client.post(f"/api/v1/financing/applications/{loan['id']}/{kind}",headers=auth(client,'Aarav')).status_code==403
     path=f"/api/v1/financing/applications/{loan['id']}/assess"
-    assert client.post(path,headers=LENDER,params={'lender_id':'real-finance'}).status_code==403
-    assert client.post(path,headers=LENDER,params={'lender_id':'unknown'}).status_code==422
-    assert client.get('/api/v1/financing/applications',headers=LENDER,params={'lender_id':'real-finance'}).json()['data']==[]
+    assert client.post(path,headers=auth(client,'real-finance'),params={'lender_id':'real-finance'}).status_code==403
+    assert client.post(path,headers=auth(client,'axim-bank'),params={'lender_id':'unknown'}).status_code==200
+    assert client.get('/api/v1/financing/applications',headers=auth(client,'real-finance'),params={'lender_id':'real-finance'}).json()['data']==[]
     loan=action(client,loan,'assess')
     assert loan['reviewer_context']['lender_id']=='axim-bank' and loan['terms_snapshot']['catalogue_version']==1
     assert action(client,loan,'reject')['state']=='REJECTED'
@@ -55,9 +55,9 @@ def test_duplicate_disbursement_and_atomic_repayment(client,application,balances
     assert results[0]==results[1] and balance(client)=='600000'
     loan=results[0]
     path=f"/api/v1/financing/applications/{loan['id']}/repay"
-    assert client.post(path,headers=INVESTOR).status_code==409
+    assert client.post(path,headers=auth(client,'Aarav')).status_code==409
     assert balance(client)=='600000'
-    assert client.get('/api/v1/financing/applications',headers=INVESTOR).json()['data'][0]['state']=='DISBURSED'
+    assert client.get('/api/v1/financing/applications',headers=auth(client,'Aarav')).json()['data'][0]['state']=='DISBURSED'
     assert cash(client,'fund',60000,'interest').status_code==200
     loan=action(client,loan,'repay')
     assert action(client,loan,'repay')==loan and balance(client)=='0'
@@ -79,9 +79,9 @@ def test_wallet_idempotency_and_concurrent_withdrawals(client, application):
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses=list(pool.map(lambda key:cash(client,'withdraw',80,key),['one','two']))
     assert sorted(r.status_code for r in responses)==[200,409] and balance(client)=='20'
-    history=client.get('/api/v1/demo-wallet/activity',headers=INVESTOR).json()['data']
+    history=client.get('/api/v1/demo-wallet/activity',headers=auth(client,'Aarav')).json()['data']
     assert len(history)==2 and all(e['simulated'] for e in history)
-    assert client.post('/api/v1/demo-wallet/fund',headers={**LENDER,'Idempotency-Key':'bad'},json={'amount_minor':'100'}).status_code==403
+    assert client.post('/api/v1/demo-wallet/fund',headers={**auth(client,'axim-bank'),'Idempotency-Key':'bad'},json={'amount_minor':'100'}).status_code==403
     assert cash(client,'fund',9007199254740992,'overflow').status_code==422
 
 
@@ -98,9 +98,9 @@ def test_legacy_loans_not_credited_or_reassigned(client,application,balances):
         session.flush()
         session.delete(session.get(DemoCashAccount,DEMO_ACTORS['INVESTOR'].user_id));session.commit()
     assert balance(client)=='0'
-    assert client.get('/api/v1/financing/applications',headers=INVESTOR).json()['data'][0]==legacy
-    assert client.get('/api/v1/financing/applications',headers=LENDER).json()['data']==[]
-    assert client.post(f"/api/v1/financing/applications/{loan['id']}/disburse",headers=LENDER).status_code==403
+    assert client.get('/api/v1/financing/applications',headers=auth(client,'Aarav')).json()['data'][0]==legacy
+    assert client.get('/api/v1/financing/applications',headers=auth(client,'axim-bank')).json()['data']==[]
+    assert client.post(f"/api/v1/financing/applications/{loan['id']}/disburse",headers=auth(client,'axim-bank')).status_code==403
     assert balance(client)=='0' and eligible(client)['reserved_simulated']==1
     assert cash(client,'fund',660000,'legacy-repayment').status_code==200
     action(client,loan,'repay');action(client,loan,'release')
@@ -119,7 +119,7 @@ def test_repayment_rolls_back_cash_entry_if_loan_update_fails(client,application
             raise RuntimeError('Test-only loan write failure')
     event.listen(engine,'before_cursor_execute',fail_update)
     try:
-        response=client.post(f"/api/v1/financing/applications/{loan['id']}/repay",headers=INVESTOR)
+        response=client.post(f"/api/v1/financing/applications/{loan['id']}/repay",headers=auth(client,'Aarav'))
         assert response.status_code==500
     finally:
         event.remove(engine,'before_cursor_execute',fail_update)
@@ -165,6 +165,6 @@ def test_legacy_application_idempotency_is_preserved(client,application,balances
         row.request_hash=hashlib.sha256(('POST /api/v1/financing/applications\n'+json.dumps(BODY,sort_keys=True,separators=(',',':'))).encode()).hexdigest()
         session.commit()
     assert apply(client)==legacy
-    response=client.post('/api/v1/financing/applications',headers={**INVESTOR,'Idempotency-Key':'finance-one'},
+    response=client.post('/api/v1/financing/applications',headers={**auth(client,'Aarav'),'Idempotency-Key':'finance-one'},
                          json={**BODY,'lender_id':'axim-bank','offer_id':'axim-standard'})
     assert response.status_code==409

@@ -57,8 +57,10 @@ def bridge(application):
         yield state
 
 
-def headers(key='one-transfer'):
-    return {'X-Demo-Role':'INVESTOR','Idempotency-Key':key}
+def headers(client,key='one-transfer',username='Aarav'):
+    response=client.post('/api/v1/auth/login',json={'username':username,'password':'test-password'})
+    assert response.status_code==200,response.text
+    return {'Authorization':'Bearer '+response.json()['data']['access_token'],'Idempotency-Key':key}
 
 
 def payload(kind='ACQUISITION'):
@@ -68,7 +70,7 @@ def payload(kind='ACQUISITION'):
 
 @pytest.mark.parametrize('kind',['ACQUISITION','TRANSFER'])
 def test_successful_transfer_durable_commit_and_replay(client,application,bridge,kind):
-    response=client.post('/api/v1/ansh/transfers',json=payload(kind),headers=headers())
+    response=client.post('/api/v1/ansh/transfers',json=payload(kind),headers=headers(client))
     assert response.status_code==200,response.text
     data=response.json()['data']
     assert data['state']=='COMMITTED_VALID' and data['transaction_id']==TX and data['ownership_confirmed']
@@ -77,38 +79,39 @@ def test_successful_transfer_durable_commit_and_replay(client,application,bridge
     assert '01'*32 not in response.text and '02'*32 not in response.text
     assert bridge['calls'].count('transfers/submit')==1
     calls=list(bridge['calls'])
-    assert client.post('/api/v1/ansh/transfers',json=payload(kind),headers=headers()).json()['data']==data
+    assert client.post('/api/v1/ansh/transfers',json=payload(kind),headers=headers(client)).json()['data']==data
     assert bridge['calls']==calls
     changed=payload(kind);changed['quantity']=5
-    assert client.post('/api/v1/ansh/transfers',json=changed,headers=headers()).status_code==409
+    assert client.post('/api/v1/ansh/transfers',json=changed,headers=headers(client)).status_code==409
     assert bridge['calls']==calls
-    assert client.get('/api/v1/ansh/transfers/'+data['operation_id']+'/status',headers=headers()).json()['data']==data
-    balance=client.get(f'/api/v1/ansh/balances/{PID}/{INVESTOR}',headers={'X-Demo-Role':'INVESTOR'})
+    assert client.get('/api/v1/ansh/transfers/'+data['operation_id']+'/status',headers=headers(client)).json()['data']==data
+    balance=client.get(f'/api/v1/ansh/balances/{PID}/{INVESTOR}',headers=headers(client))
     assert balance.status_code==200 and balance.json()['data']['source']=='DRUNIX_EVALUATE'
 
 
 def test_insufficient_balance_never_submits(client,bridge):
     bridge['prepare_error']=True  # Balance changed after the initial evaluation.
-    response=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers())
+    response=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers(client))
     assert response.status_code==409 and response.json()['error']['code']=='INSUFFICIENT_BALANCE'
     assert 'infrastructure' not in response.text
     assert 'transfers/submit' not in bridge['calls']
     op=response.json()['error']['details']['operation_id']
-    assert client.get('/api/v1/ansh/transfers/'+op,headers=headers()).json()['data']['state']=='FAILED'
+    assert client.get('/api/v1/ansh/transfers/'+op,headers=headers(client)).json()['data']['state']=='FAILED'
 
 
 def test_demo_identity_required_and_failed_payment_cannot_transfer(client,application,bridge):
+    aarav_headers=headers(client)
     response=client.post('/api/v1/ansh/transfers',json=payload(),headers={'Idempotency-Key':'unauthorized'})
     assert response.status_code==401 and bridge['calls']==[]
     for role in ('ADMIN','LENDER'):
-        response=client.post('/api/v1/ansh/transfers',json=payload(),headers={**headers(), 'X-Demo-Role':role})
-        assert response.status_code==403 and bridge['calls']==[]
+        response=client.post('/api/v1/ansh/transfers',json=payload(),headers={'X-Demo-Role':role,'Idempotency-Key':'role-only'})
+        assert response.status_code==401 and bridge['calls']==[]
     application.state.settings.demo_auth_enabled=False
-    assert client.post('/api/v1/ansh/transfers',json=payload(),headers=headers()).status_code==503
+    assert client.post('/api/v1/ansh/transfers',json=payload(),headers=aarav_headers).status_code==503
     assert bridge['calls']==[]
     application.state.settings.demo_auth_enabled=True
     command=payload();command['payment_outcome']='FAILED'
-    response=client.post('/api/v1/ansh/transfers',json=command,headers=headers())
+    response=client.post('/api/v1/ansh/transfers',json=command,headers=aarav_headers)
     assert response.status_code==200 and response.json()['data']['state']=='PAYMENT_FAILED'
     assert response.json()['data']['ownership_confirmed'] is False
     assert not any(path.startswith('transfers/') for path in bridge['calls'])
@@ -116,23 +119,23 @@ def test_demo_identity_required_and_failed_payment_cannot_transfer(client,applic
 
 def test_uncertain_submission_only_reconciles_never_resubmits(client,bridge):
     bridge['submit_timeout']=True
-    response=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers())
+    response=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers(client))
     assert response.status_code==202 and response.json()['data']['state']=='UNKNOWN'
     op=response.json()['data']['operation_id']
     assert response.json()['data']['transaction_id']==TX
-    assert client.post('/api/v1/ansh/transfers',json=payload(),headers=headers()).json()['data']['state']=='UNKNOWN'
-    result=client.post('/api/v1/ansh/transfers/'+op+'/reconcile',headers=headers())
+    assert client.post('/api/v1/ansh/transfers',json=payload(),headers=headers(client)).json()['data']['state']=='UNKNOWN'
+    result=client.post('/api/v1/ansh/transfers/'+op+'/reconcile',headers=headers(client))
     assert result.json()['data']['state']=='COMMITTED_VALID'
     assert bridge['calls'].count('transfers/prepare')==1 and bridge['calls'].count('transfers/submit')==1
 
 
 def test_actor_ownership_checks_remain_enforced(client,bridge):
     for command in (dict(payload(),to_user_id=RECIPIENT),dict(payload('TRANSFER'),from_user_id=ISSUER)):
-        response=client.post('/api/v1/ansh/transfers',json=command,headers=headers())
+        response=client.post('/api/v1/ansh/transfers',json=command,headers=headers(client))
         assert response.status_code==403 and bridge['calls']==[]
-    created=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers()).json()['data']
+    created=client.post('/api/v1/ansh/transfers',json=payload(),headers=headers(client)).json()['data']
     calls=list(bridge['calls'])
-    other={'X-Demo-Role':'ISSUER'}
+    other=headers(client,username='Meera')
     assert client.get('/api/v1/ansh/transfers/'+created['operation_id']+'/status',headers=other).status_code==404
     assert client.post('/api/v1/ansh/transfers/'+created['operation_id']+'/reconcile',headers=other).status_code==404
     assert bridge['calls']==calls

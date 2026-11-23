@@ -16,5 +16,5 @@ export const route={
  listings:'/api/v1/marketplace/listings',orders:'/api/v1/marketplace/orders',
  payments:'/api/v1/payments/simulate',pledges:'/api/v1/collateral/pledges',
  loans:'/api/v1/loans/applications',distributions:'/api/v1/distributions',
- audit:'/api/v1/audit/events',demoRole:'/api/v1/demo/active-role'
+ audit:'/api/v1/audit/events'
 } as const;

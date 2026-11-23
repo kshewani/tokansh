@@ -6,4 +6,3 @@ export function loanActions(role:Role,state:string){
  if(role!=='LENDER')return [];
  return state==='APPLIED'?['assess','reject']:state==='ASSESSED'?['approve','reject']:state==='APPROVED'?['disburse']:[];
 }
-export function readInstitution(store?:Pick<Storage,'getItem'>){try{return store?.getItem('tokansh-lender')||'axim-bank';}catch{return 'axim-bank';}}

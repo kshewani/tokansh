@@ -266,4 +266,8 @@ def reconcile_transfer(operation_id: UUID, request: Request, actor: Actor, bridg
 @router.get('/balances/{property_id}/{holder_id}')
 def holder_balance(property_id: UUID, holder_id: UUID, request: Request,
                    actor: Annotated[DemoActor, Depends(demo_actor)], bridge: Gateway):
+    if actor.role in {'INVESTOR', 'LENDER'} and str(holder_id) != actor.user_id:
+        raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'The session cannot read another holder balance.')
+    if actor.role == 'ISSUER' and str(holder_id) != actor.user_id:
+        raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'The issuer session cannot read another holder balance.')
     return success(request, bridge.balance(str(property_id), str(holder_id), request.state.correlation_id))

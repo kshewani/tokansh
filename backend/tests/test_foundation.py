@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
-from fastapi.testclient import TestClient
+from client_support import SyncASGIClient
 from pydantic import ValidationError
 
 from app.config import Settings
@@ -50,7 +50,7 @@ def test_existing_frontend_parser_accepts_actual_backend_payload(client):
 
 def test_missing_migrations_fail_safely_without_autocreating_tables(settings):
     app = create_app(settings)
-    with TestClient(app) as client:
+    with SyncASGIClient(app) as client:
         response = client.get("/api/v1/system/status")
         database = next(item for item in response.json()["data"]["components"] if item["name"] == "Application database")
         assert database["status"] == "UNAVAILABLE"
@@ -76,7 +76,7 @@ def test_migrations_upgrade_downgrade_and_model_alignment(settings):
 
 def test_cors_allows_local_frontend_headers_but_rejects_other_origins(client):
     headers = {"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST",
-               "Access-Control-Request-Headers": "Content-Type,Idempotency-Key,X-Correlation-ID,X-Demo-Role"}
+               "Access-Control-Request-Headers": "Authorization,Content-Type,Idempotency-Key,X-Correlation-ID"}
     allowed = client.options("/api/v1/properties", headers=headers)
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
@@ -106,7 +106,7 @@ def test_unexpected_errors_are_structured_correlated_and_cors_visible(applicatio
         raise RuntimeError("sensitive test-only exception contents")
 
     application.add_api_route("/test-only-failure", failure)
-    with TestClient(application) as client:
+    with SyncASGIClient(application) as client:
         response = client.get("/test-only-failure", headers={"Origin": "http://localhost:5173", "X-Correlation-ID": "server-error-reference"})
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
@@ -139,9 +139,9 @@ def test_settings_load_supported_environment_variables(monkeypatch, tmp_path):
 def test_production_without_auth_cannot_access_property_workflows(settings, property_payload):
     command.upgrade(migration_config(settings.database_url), "head")
     app = create_app(settings.model_copy(update={"app_env": "production", "demo_auth_enabled": False}))
-    with TestClient(app) as client:
+    with SyncASGIClient(app) as client:
         response = client.post("/api/v1/properties", json=property_payload,
-                               headers={"X-Demo-Role": "ISSUER", "Idempotency-Key": "test"})
+                               headers={"Idempotency-Key": "test"})
         assert response.status_code == 503
         assert response.json()["error"]["code"] == "AUTH_NOT_CONFIGURED"
 
@@ -161,4 +161,4 @@ def test_openapi_describes_existing_request_response_and_error_contracts(client)
     assert create["responses"]["422"]["content"]["application/json"]["schema"]["$ref"].endswith("ErrorEnvelope")
     assert schema["paths"]["/ready"]["get"]["responses"]["503"]["content"]["application/json"]["schema"]["$ref"].endswith("Envelope_Readiness_")
     headers = {parameter["name"] for parameter in create["parameters"] if parameter["in"] == "header"}
-    assert {"X-Demo-Role", "Idempotency-Key"} <= headers
+    assert {"Authorization", "Idempotency-Key"} <= headers

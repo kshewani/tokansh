@@ -1,5 +1,33 @@
 export type ApiMode = 'preview' | 'real';
 export type ApiConfiguration = {mode:ApiMode;baseUrl:string;configured:boolean};
+export const AUTH_SESSION_KEY='tokansh-demo-auth-v1';
+export type AuthRole='INVESTOR'|'LENDER';
+export type AuthSession={access_token:string;token_type:'bearer';username:string;display_name:string;role:AuthRole;user_id:string;organization_id:string|null};
+export type StorageLike=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
+
+function browserStorage():StorageLike|null {
+ try{return typeof window==='undefined'?null:window.sessionStorage;}catch{return null;}
+}
+export function readAuthSession(store:StorageLike|null|undefined=browserStorage()):AuthSession|null {
+ try {
+  const raw=store?.getItem(AUTH_SESSION_KEY);if(!raw)return null;
+  const value:unknown=JSON.parse(raw);
+  if(!isRecord(value)||typeof value.access_token!=='string'||!value.access_token||value.token_type!=='bearer'||
+   typeof value.username!=='string'||typeof value.display_name!=='string'||!['INVESTOR','LENDER'].includes(String(value.role))||
+   typeof value.user_id!=='string'||!(value.organization_id===null||typeof value.organization_id==='string'))return null;
+  return value as AuthSession;
+ }catch{return null;}
+}
+export function writeAuthSession(value:AuthSession,store:StorageLike|null|undefined=browserStorage()):void {
+ try{store?.setItem(AUTH_SESSION_KEY,JSON.stringify(value));}catch{/* React state remains authoritative for this tab. */}
+}
+export function clearAuthSession(store:StorageLike|null|undefined=browserStorage()):void {
+ try{store?.removeItem(AUTH_SESSION_KEY);}catch{/* Session state is still cleared in React. */}
+}
+export function authFailure(store:StorageLike|null|undefined=browserStorage()):void {
+ clearAuthSession(store);
+ if(typeof window!=='undefined')window.dispatchEvent(new Event('tokansh-auth-failure'));
+}
 
 export function apiConfiguration(env:{VITE_API_MODE?:string;VITE_API_BASE_URL?:string}):ApiConfiguration {
  const mode=env.VITE_API_MODE==='real'?'real':'preview';
@@ -35,10 +63,10 @@ export function errorFeedback(error:unknown):string {
  const operationId=typeof error.details?.operation_id==='string'?error.details.operation_id:null;
  return `${error.message} (${error.code}) ${recovery}${operationId?' Operation: '+operationId:''}${error.correlationId?' Reference: '+error.correlationId:''}`;
 }
-export type RequestOptions={method?:'GET'|'POST'|'PUT';body?:unknown;signal?:AbortSignal;idempotencyKey?:string;correlationId?:string;demoRole?:'ISSUER'|'INVESTOR'|'LENDER'};
+export type RequestOptions={method?:'GET'|'POST'|'PUT';body?:unknown;signal?:AbortSignal;idempotencyKey?:string;correlationId?:string};
 
 /** Injectable HTTP boundary; fixtures may be supplied only by isolated tests. */
-export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch,timeoutMs=15000){
+export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch,timeoutMs=15000,store:StorageLike|null|undefined=browserStorage()){
  return async function request<T>(path:string,opts:RequestOptions={}):Promise<T>{
   if(!config.configured)throw new RequestError(503,'BACKEND_UNAVAILABLE',
    'Python API is not configured. No backend request was sent.');
@@ -46,7 +74,8 @@ export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch
   const method=opts.method||'GET',isWrite=method!=='GET';
   const headers:Record<string,string>={'Accept':'application/json'};
   if(opts.body!==undefined)headers['Content-Type']='application/json';
-  if(opts.demoRole)headers['X-Demo-Role']=opts.demoRole;
+  const session=readAuthSession(store);
+  if(session?.access_token)headers.Authorization=`Bearer ${session.access_token}`;
   if(opts.idempotencyKey)headers['Idempotency-Key']=opts.idempotencyKey;
   if(opts.correlationId)headers['X-Correlation-ID']=opts.correlationId;
   let body:string|undefined;
@@ -68,6 +97,7 @@ export function createRequest(config:ApiConfiguration,fetcher:typeof fetch=fetch
     payload.meta.correlation_id:correlationId;
    if(!res.ok){
     const err=isRecord(payload)&&isRecord(payload.error)?payload.error:{};
+    if(res.status===401)authFailure(store);
     throw new RequestError(res.status,typeof err.code==='string'?err.code:'HTTP_ERROR',
      typeof err.message==='string'?err.message:`API request failed (HTTP ${res.status}).`,
      isRecord(err.details)?err.details:undefined,correlationId,isWrite&&(res.status>=500||res.status===408||

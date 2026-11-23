@@ -2,14 +2,21 @@ from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
 
 from app.dependencies import DEMO_ACTORS
+from app.auth import DemoIdentity
 from app.main import create_app
 from app.properties.models import ApplicationOperation, Property, PropertyEvent
 from app.properties.schemas import NewProperty
 from app.properties.service import PropertyService
+from client_support import SyncASGIClient
+
+
+def auth(client, username):
+    response = client.post('/api/v1/auth/login', json={'username': username, 'password': 'test-password'})
+    assert response.status_code == 200, response.text
+    return {'Authorization': 'Bearer ' + response.json()['data']['access_token']}
 
 
 def test_create_list_and_get_persistent_draft(client, application, property_payload, issuer_headers):
@@ -26,7 +33,7 @@ def test_create_list_and_get_persistent_draft(client, application, property_payl
     assert data["ledger_registration_status"] == "NOT_REGISTERED"
     assert data["ledger_transaction_id"] is None
     assert response.headers["X-Correlation-ID"] == response.json()["meta"]["correlation_id"] == "test-correlation"
-    listing = client.get("/api/v1/properties", headers={"X-Demo-Role": "INVESTOR"}).json()["data"]
+    listing = client.get("/api/v1/properties", headers=auth(client, 'Aarav')).json()["data"]
     assert listing == {"items": [data], "page": 1, "page_size": 20, "total_items": 1, "total_pages": 1}
     assert client.get(f"/api/v1/properties/{data['id']}", headers=issuer_headers).json()["data"] == data
     with application.state.database.sessions() as session:
@@ -88,13 +95,18 @@ def test_conflicting_key_is_rejected_without_modification(client, property_paylo
 
 
 def test_restart_preserves_property_and_replay(application, settings, property_payload, issuer_headers):
-    with TestClient(application) as first_client:
+    with SyncASGIClient(application) as first_client:
         original = first_client.post("/api/v1/properties", json=property_payload, headers=issuer_headers)
     restarted = create_app(settings)
-    with TestClient(restarted) as second_client:
-        replay = second_client.post("/api/v1/properties", json=property_payload, headers=issuer_headers)
+    with SyncASGIClient(restarted) as second_client:
+        token = restarted.state.sessions.create(DemoIdentity("issuer", "Issuer", "ISSUER",
+                                                              DEMO_ACTORS["ISSUER"].user_id))
+        restarted_headers = {"Authorization": "Bearer " + token,
+                             "Idempotency-Key": issuer_headers["Idempotency-Key"],
+                             "X-Correlation-ID": issuer_headers["X-Correlation-ID"]}
+        replay = second_client.post("/api/v1/properties", json=property_payload, headers=restarted_headers)
         assert replay.json()["data"] == original.json()["data"]
-        assert second_client.get("/api/v1/properties", headers=issuer_headers).json()["data"]["total_items"] == 1
+        assert second_client.get("/api/v1/properties", headers=restarted_headers).json()["data"]["total_items"] == 1
 
 
 def test_concurrent_duplicate_requests_create_one_property(application, property_payload):
@@ -147,13 +159,40 @@ def test_pagination_and_not_found(client, property_payload, issuer_headers):
     assert client.get("/api/v1/properties/not-a-uuid", headers=issuer_headers).status_code == 422
 
 
-def test_permissions_and_required_idempotency(client, property_payload):
+def test_permissions_and_required_idempotency(client, property_payload, issuer_headers):
     assert client.post("/api/v1/properties", json=property_payload).status_code == 401
     for role in ["INVESTOR", "LENDER", "INVALID"]:
         response = client.post("/api/v1/properties", json=property_payload, headers={"X-Demo-Role": role, "Idempotency-Key": "test"})
-        assert response.status_code == 403
-    assert client.post("/api/v1/properties", json=property_payload, headers={"X-Demo-Role": "ISSUER"}).status_code == 422
-    assert client.post("/api/v1/properties", json=property_payload, headers={"X-Demo-Role": "ADMIN", "Idempotency-Key": "admin-operation"}).status_code == 201
+        assert response.status_code == 401
+    investor_response = client.post("/api/v1/properties", json=property_payload,
+                                    headers={**auth(client, 'Aarav'), "Idempotency-Key": "aarav-issuance"})
+    assert investor_response.status_code == 201
+    assert investor_response.json()["data"]["issuer_id"] == "00000000-0000-4000-8000-000000000003"
+    assert client.post("/api/v1/properties", json=property_payload,
+                       headers={**issuer_headers, "Idempotency-Key": "admin-operation"}).status_code == 201
+
+
+def test_authenticated_investors_can_initiate_property_issuance(client, property_payload):
+    for username, user_id in [
+        ("Meera", "00000000-0000-4000-8000-000000000006"),
+        ("Aarav", "00000000-0000-4000-8000-000000000003"),
+    ]:
+        response = client.post(
+            "/api/v1/properties",
+            json={**property_payload, "name": f"{username} Issuance Property"},
+            headers={**auth(client, username), "Idempotency-Key": f"{username.lower()}-property"},
+        )
+        assert response.status_code == 201
+        assert response.json()["data"]["issuer_id"] == user_id
+
+
+def test_lender_cannot_initiate_property_issuance(client, property_payload):
+    response = client.post(
+        "/api/v1/properties",
+        json=property_payload,
+        headers={**auth(client, "axim-bank"), "Idempotency-Key": "lender-property"},
+    )
+    assert response.status_code == 403
 
 
 def test_unresolved_operation_does_not_create_another_property(client, application, property_payload, issuer_headers):

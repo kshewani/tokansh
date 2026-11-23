@@ -15,16 +15,16 @@ import {DataRow,Field} from './ui/form';
 import {ReviewDialog} from './ui/dialog';
 
 export function CurrentDistributions(){
- const {role,mode,preview}=useApp(),{live,balances}=useInvestor();
+ const {mode,preview,session}=useApp(),{live,balances}=useInvestor();
  const source=mode==='real'?'DRUNIX_CURRENT_BALANCE':'UI_PREVIEW';
  const refreshBalances=balances.refetch;
  useEffect(()=>{if(mode==='real')void refreshBalances();},[mode,refreshBalances]);
- const units=mode==='real'?live?.[1].quantity:preview?.holding.owned;
+ const units=mode==='real'?live?.quantity:preview?.holding.owned;
  const [rate,setRate]=useState('100.00'),[draft,setDraft]=useState<IncomeSnapshot|null>(null),[reading,setReading]=useState(false),[error,setError]=useState<string|null>(null);
  const pending=useRef(false);
  const [history,setHistory]=useState<{rows:SimulatedPayout[];error:string|null}>(()=>{
   if(typeof window==='undefined')return {rows:[],error:null};
-  try{return {rows:readPayouts(window.localStorage,investorDemo.investor,investorDemo.property,source),error:null};}
+  try{return {rows:readPayouts(window.localStorage,session?.user_id||'preview-investor',investorDemo.property,source),error:null};}
   catch{return {rows:[],error:'Browser simulation history is unavailable or inconsistent; existing records were not overwritten.'};}
  });
  const reit=reitTotals();let rateMinor:string|null=null,ansh:string|null=null;
@@ -35,7 +35,7 @@ export function CurrentDistributions(){
   try{
    // Re-read specifically for the reviewed snapshot; never use a scenario fallback.
    const id=crypto.randomUUID();
-   setDraft(mode==='real'?await captureIncomeSnapshot(request,role,rateMinor,id):incomeSnapshot(id,investorDemo.investor,investorDemo.property,units,rateMinor,new Date().toISOString(),source));
+   setDraft(mode==='real'?await captureIncomeSnapshot(request,session?.user_id||'',rateMinor,id):incomeSnapshot(id,session?.user_id||'preview-investor',investorDemo.property,units,rateMinor,new Date().toISOString(),source));
    if(mode==='real')void refreshBalances();
   }catch(e){setError(errorFeedback(e));}finally{pending.current=false;setReading(false);}
  }

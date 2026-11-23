@@ -11,6 +11,7 @@ type MenuItem={to:string;label:string;icon:LucideIcon;roles:Role[];section:strin
 const nav:MenuItem[]=[
  {to:'/overview',label:'Portfolio Overview',icon:LayoutDashboard,roles:['INVESTOR'],section:'Invest'},
  {to:'/marketplace',label:'Explore Assets',icon:Compass,roles:['INVESTOR'],section:'Invest'},
+ {to:'/registry',label:'Create Property',icon:Building2,roles:['INVESTOR'],section:'Invest'},
  {to:'/portfolio',label:'My Portfolio',icon:Wallet,roles:['INVESTOR'],section:'Invest'},
  {to:'/collateral',label:'Borrow Against ANSH',icon:Landmark,roles:['INVESTOR'],section:'Liquidity'},
  {to:'/wallet',label:'Demo Cash Wallet',icon:HandCoins,roles:['INVESTOR'],section:'Liquidity'},
@@ -21,7 +22,7 @@ const nav:MenuItem[]=[
  {to:'/system',label:'System Status',icon:Activity,roles:['INVESTOR','LENDER'],section:'Insights'}
 ];
 export function Shell(){
- const {role,logout,phase,setPhase,message,notify,backendReady,mode}=useApp();
+ const {role,session,logout,phase,setPhase,message,notify,backendReady,mode}=useApp();
  const navigate=useNavigate();
  function handleLogout(){logout();setOpen(false);navigate('/login',{replace:true});}
  const [open,setOpen]=useState(false);
@@ -58,7 +59,7 @@ export function Shell(){
     <div className="flex items-center gap-3"><button className="rounded-lg p-2 text-[#102B4E] lg:hidden" ref={menuButton} aria-controls="workspace-navigation" aria-expanded={open} aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={22}/></button><div><p className="text-[10px] uppercase tracking-[.1em] text-slate-400">TokANSH / {role==='ISSUER'?'Issuer':role==='INVESTOR'?'Investor':'Lender'}</p><strong className="text-sm text-[#102B4E]">{title}</strong></div></div>
     <div className="flex flex-wrap items-center gap-2.5">
      {mode==='preview'?<Status value={backendReady?'PENDING':'UNAVAILABLE'}/>:<span className="text-xs text-slate-500">Commit evidence is shown per operation</span>}
-     <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700"><span className="hidden font-medium text-slate-500 sm:inline">Demo role</span><strong>{role==='ISSUER'?'Admin / Issuer':role==='INVESTOR'?'Investor':'Lender'}</strong></div>
+     <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700"><span className="hidden font-medium text-slate-500 sm:inline">Signed in as</span><strong>{session?.display_name||'Demo user'}</strong>{role==='LENDER'&&session?.organization_id&&<span className="hidden text-slate-500 md:inline">· {session.organization_id}</span>}</div>
      <button className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#102B4E] hover:bg-slate-50" onClick={handleLogout} title="Log out and select a different demo account"><LogOut size={15}/> <span className="hidden sm:inline">Logout</span></button>
      {mode==='preview'&&<label className="flex items-center gap-1.5 text-xs text-slate-500">Scenario <select aria-label="Preview scenario stage" className="max-w-[175px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-[#102B4E]" value={phase} onChange={e=>setPhase(e.target.value as typeof phase)}>{phases.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>}
     </div>

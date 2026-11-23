@@ -17,6 +17,7 @@ from app.properties.router import router as properties_router
 from app.system import router as system_router
 from app.schemas import ErrorEnvelope
 from app.drunix import GatewayAdapter, router as diagnostic_router
+from app.auth import SessionStore, router as auth_router
 
 logger = logging.getLogger("tokansh")
 
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="TokANSH Backend", version="0.2.0", lifespan=lifespan,
                   responses={status: {"model": ErrorEnvelope} for status in [400, 401, 403, 404, 409, 422, 500, 503]})
     app.state.settings, app.state.database = settings, database
+    app.state.sessions = SessionStore()
     app.state.gateway = GatewayAdapter(settings.drunix_gateway_url, gateway_client)
     app.state.transfer_gateway = TransferGateway(settings, gateway_client)
     register_handlers(app)
@@ -63,9 +65,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
                        allow_methods=["GET", "POST", "OPTIONS"],
-                       allow_headers=["Content-Type", "Idempotency-Key", "X-Correlation-ID", "X-Demo-Role"],
+                       allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-ID"],
                        expose_headers=["X-Correlation-ID"])
     api = APIRouter(prefix="/api/v1")
+    api.include_router(auth_router)
     api.include_router(properties_router)
     api.include_router(transfers_router)
     api.include_router(financing_router)

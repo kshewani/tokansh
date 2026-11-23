@@ -9,7 +9,7 @@ export function previewData(mode:ApiMode,phase:Phase){
   events:scenarioEvents(phase),entitlement:scenarioEntitlement(phase)};
 }
 export function screenIntegrated(mode:ApiMode,path:string):boolean {
- return mode==='preview'||['/wallet','/properties','/transactions','/system','/overview','/marketplace','/portfolio','/collateral','/lending','/distributions','/intelligence'].includes(path.replace(/\/+$/,'').toLowerCase());
+ return mode==='preview'||['/wallet','/properties','/registry','/transactions','/system','/overview','/marketplace','/portfolio','/collateral','/lending','/distributions','/intelligence'].includes(path.replace(/\/+$/,'').toLowerCase());
 }
 /** Synchronous latch: React's pending render alone cannot guard rapid clicks. */
 export function createSubmissionGuard(){

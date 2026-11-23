@@ -15,6 +15,33 @@ function TransitionTimeline({phase}:{phase:string}){
  return <ol className="space-y-4">{labels.map((label,i)=><li key={label} className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-[#1769AA]">{i+1}</span><div><p className="text-sm font-semibold text-slate-700">{label}</p><p className="mt-1 text-xs text-slate-500">{i<3?'Supporting workflow stage':i===3?'Submission requires Python and DRUNIX':i===4?'Only actual commit permits success':'Only refresh after verified commit'}</p></div><Status value={i===0&&phase==='PURCHASED'?'PREVIEW_ONLY':'UNAVAILABLE'}/></li>)}</ol>;
 }
 export function Registry(){
+ const {mode}=useApp();
+ return mode==='real'?<ConnectedRegistry/>:<PreviewRegistry/>;
+}
+function ConnectedRegistry(){
+ const {session,submit,submitting,message}=useApp();
+ const [name,setName]=useState(sample.name),[location,setLocation]=useState(sample.location);
+ const [category,setCategory]=useState('Commercial office'),[valuation,setValuation]=useState(sample.valuation);
+ const [supply,setSupply]=useState(sample.approvedSupply),[price,setPrice]=useState(sample.unitPrice);
+ const valid=name.trim().length>2&&location.trim().length>2&&Number(valuation)>0&&Number.isSafeInteger(supply)&&supply>0&&Number(price)>0;
+ const payload:NewProperty={name,location,category,valuation,proposed_supply:supply,issue_price:price,currency:'INR'};
+ return <><SectionHeading title="Property Registry" description="Create an application as the authenticated investor. Approval and DRUNIX registration remain separate backend workflows."/>
+  <div className="grid gap-4 lg:grid-cols-3"><Metric label="Authenticated issuer" value={session?.display_name||'Unavailable'} description="Issuer identity comes from the bearer session"/><Metric label="Application status" value={message?.kind==='submitted'?'Submitted':'Ready'} description="No ledger transaction is created by this screen"/><Metric label="Proposed ANSH supply" value={integer(supply)} description="Backend validates issuance constraints"/></div>
+  <div className="mt-5 grid gap-5 xl:grid-cols-[1.15fr_1fr]">
+   <Card title="Property information" description="New applications use your authenticated investor UUID as issuer_id">
+    <form onSubmit={e=>{e.preventDefault();if(valid)void submit(route.properties,payload);}} className="grid gap-4 sm:grid-cols-2">
+     <Field label="Property name" id="connected-reg-name" value={name} onChange={e=>setName(e.target.value)} required minLength={3}/><Field label="Location" id="connected-reg-location" value={location} onChange={e=>setLocation(e.target.value)} required/>
+     <SelectField label="Property category" id="connected-reg-category" value={category} onChange={e=>setCategory(e.target.value)}><option>Commercial office</option><option>Residential</option><option>Industrial</option></SelectField>
+     <Field label="Illustrative valuation (INR)" id="connected-reg-value" type="number" min={1} value={valuation} onChange={e=>setValuation(e.target.value)} required/><Field label="Total proposed ANSH" id="connected-reg-supply" type="number" min={1} step={1} value={supply} onChange={e=>setSupply(Number(e.target.value))} required/>
+     <Field label="Issue price / ANSH (INR)" id="connected-reg-price" type="number" min={1} value={price} onChange={e=>setPrice(e.target.value)} required/><Field label="Issuer / owner" id="connected-reg-issuer" value={session?.display_name||''} readOnly/>
+     <div className="sm:col-span-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-500">Supporting documents are not uploaded in this pass. No approval or DRUNIX issuance is implied.</div>
+     <div className="sm:col-span-2"><Button type="submit" disabled={!valid||submitting}>{submitting?'Submitting…':'Create property application'} <ArrowRight size={15}/></Button></div>
+    </form>
+   </Card>
+   <Card title="Application boundary" description="The API owns authorization and lifecycle state"><dl><DataRow label="Authenticated user" value={<span className="break-all">{session?.user_id||'—'}</span>}/><DataRow label="Issuer assignment" value="Backend session identity"/><DataRow label="Approval" value={<Status value="PENDING"/>}/><DataRow label="DRUNIX registration" value={<Status value="UNAVAILABLE"/>}/><DataRow label="ANSH issuance" value={<Status value="UNAVAILABLE"/>}/></dl><p className="mt-5 text-xs leading-6 text-slate-500">The legacy issuer UUID remains untouched. This investor flow only creates a new application record and does not issue, transfer, or allocate ANSH.</p></Card>
+  </div></>;
+}
+function PreviewRegistry(){
  const {property,phase,submit,submitting}=usePreview();
  const [open,setOpen]=useState<'register'|'submit'|'approve'|'reject'|null>(null);
  const [name,setName]=useState(sample.name);const [location,setLocation]=useState(sample.location);

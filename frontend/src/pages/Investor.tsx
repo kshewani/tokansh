@@ -14,12 +14,11 @@ import {Button} from '../components/ui/button';
 import {DataRow,Field,SelectField} from '../components/ui/form';
 import {ReviewDialog} from '../components/ui/dialog';
 
-const names=['Issuer inventory','Investor A · Aarav','Investor B · existing recipient'];
 export function LedgerBalances(){
- const {balances,live}=useInvestor();
+ const {session}=useApp(),{balances,live}=useInvestor();
  return <div className="space-y-3">
   <div className="flex flex-wrap items-center justify-between gap-2"><span className="inline-flex items-center gap-2 text-xs font-bold text-[#1769AA]"><ShieldCheck size={16}/> DRUNIX balance evaluation</span><Button size="sm" variant="secondary" disabled={balances.isFetching} onClick={()=>{void balances.refetch();}}><RefreshCw size={13} className={balances.isFetching?'animate-spin':''}/> Refresh balances</Button></div>
-  <div className="grid gap-3 sm:grid-cols-3">{names.map((name,i)=><Metric key={name} label={name} value={live?live[i].quantity.toLocaleString('en-IN')+' ANSH':balances.isFetching?'Loading…':'—'} description={live?'Read from the ledger · no local estimate':'Authoritative balance unavailable'}/>)}</div>
+  <div className="grid gap-3 sm:grid-cols-2"><Metric label={(session?.display_name||'Investor')+' · personal holdings'} value={live?live.quantity.toLocaleString('en-IN')+' ANSH':balances.isFetching?'Loading…':'—'} description={live?'Read from the ledger · no local estimate':'Authoritative balance unavailable'}/><Metric label="Issuer inventory" value="Protected" description="Not exposed through an investor balance read"/></div>
   {balances.error&&<p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorFeedback(balances.error)} Refresh reads when the backend is available.</p>}
   {live&&<p className="text-xs text-slate-500">Last read {new Date(balances.dataUpdatedAt).toLocaleTimeString()}. Holdings are economic interests, not legal property title. No pledge workflow is enabled.</p>}
  </div>;
@@ -47,23 +46,23 @@ export function TransferProgress(){
  </Card>;
 }
 function TransferForm({kind}:{kind:'ACQUISITION'|'TRANSFER'}){
- const {role}=useApp(),{snapshot,flow,live}=useInvestor();
+ const {role,session}=useApp(),{snapshot,flow,live}=useInvestor();
  const [quantity,setQuantity]=useState(kind==='ACQUISITION'?'4':'1'),[payment,setPayment]=useState<'SUCCESS'|'FAILED'>('SUCCESS');
  const [review,setReview]=useState(false),[generation,setGeneration]=useState(0),[error,setError]=useState<string|null>(null);
- const source=kind==='ACQUISITION'?investorDemo.issuer:investorDemo.investor;
- const target=kind==='ACQUISITION'?investorDemo.investor:investorDemo.recipient;
- const available=live?.[kind==='ACQUISITION'?0:1].quantity;
+ const source=kind==='ACQUISITION'?investorDemo.issuer:session?.user_id||'';
+ const target=kind==='ACQUISITION'?session?.user_id||'':investorDemo.recipient;
+ const available=kind==='ACQUISITION'?undefined:live?.quantity;
  const value=Number(quantity);
- const valid=/^[1-9][0-9]*$/.test(quantity)&&Number.isSafeInteger(value)&&available!==undefined&&value<=available;
+ const valid=/^[1-9][0-9]*$/.test(quantity)&&Number.isSafeInteger(value)&&(kind==='ACQUISITION'||(available!==undefined&&value<=available))&&!!session?.user_id;
  const blocked=role!=='INVESTOR'||snapshot.busy||snapshot.blocked||!!snapshot.attempt;
  const command:TransferCommand={asset_id:investorDemo.property,from_user_id:source,to_user_id:target,quantity:value,kind,payment_outcome:payment};
  function reset(){try{flow.reset();setReview(false);setGeneration(v=>v+1);setError(null);}catch(e){setError(errorFeedback(e));}}
- return <Card title={kind==='ACQUISITION'?'Acquire ANSH':'Transfer ANSH'} description={kind==='ACQUISITION'?'Issuer inventory → Investor A':'Investor A → Investor B · platform-mediated'}>
+ return <Card title={kind==='ACQUISITION'?'Acquire ANSH':'Transfer ANSH'} description={kind==='ACQUISITION'?'Issuer inventory → your authenticated investor account':'Your authenticated investor account → existing recipient · platform-mediated'}>
   <form className="space-y-4" onSubmit={e=>{e.preventDefault();if(valid&&!blocked)setReview(true);}}>
-   <div className="flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4"><Wallet size={21} className="shrink-0 text-[#1769AA]"/><div><p className="text-sm font-bold text-[#102B4E]">{kind==='ACQUISITION'?'Meera → Aarav':'Aarav → Investor B'}</p><p className="mt-1 text-xs text-slate-600">Available from sender: {available===undefined?'unavailable':available+' ANSH'}</p></div></div>
+   <div className="flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4"><Wallet size={21} className="shrink-0 text-[#1769AA]"/><div><p className="text-sm font-bold text-[#102B4E]">{kind==='ACQUISITION'?'Legacy issuer → '+(session?.display_name||'investor'):(session?.display_name||'Investor')+' → existing recipient'}</p><p className="mt-1 text-xs text-slate-600">Available from sender: {available===undefined?'Validated by backend':available+' ANSH'}</p></div></div>
    <Field id={'ansh-'+kind} label="ANSH quantity" type="number" min={1} max={available} step={1} value={quantity} onChange={e=>setQuantity(e.target.value)} disabled={blocked} required/>
    <SelectField id={'payment-'+kind} label="Simulated payment outcome" value={payment} disabled={blocked} onChange={e=>setPayment(e.target.value as 'SUCCESS'|'FAILED')}><option value="SUCCESS">Simulate success</option><option value="FAILED">Simulate failure · no ledger transfer</option></SelectField>
-   <p className="text-xs leading-5 text-slate-500">No real payment or investment price is settled. The platform signs the transfer; there are no investor wallet signatures. Investor B uses the existing recipient UUID, without a separate demo login.</p>
+   <p className="text-xs leading-5 text-slate-500">No real payment or investment price is settled. The platform signs the transfer; there are no investor wallet signatures. The backend validates the authenticated sender and recipient permissions.</p>
    <details className="text-xs text-slate-500"><summary className="cursor-pointer font-semibold text-[#1769AA]">Account identifiers</summary><p className="mt-2 break-all">From: {source}</p><p className="mt-1 break-all">To: {target}</p></details>
    <Button type="submit" disabled={!valid||blocked}>{kind==='ACQUISITION'?'Review acquisition':'Review transfer'} <ArrowRight size={15}/></Button>
    {role!=='INVESTOR'&&<p className="text-xs text-amber-800">Switch to the existing Investor demo account to initiate this journey.</p>}
@@ -71,7 +70,7 @@ function TransferForm({kind}:{kind:'ACQUISITION'|'TRANSFER'}){
    {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
   </form>
   <ReviewDialog key={generation} open={review} onOpenChange={setReview} title={kind==='ACQUISITION'?'Confirm ANSH acquisition':'Confirm secondary transfer'} description="Confirm the holder movement and simulated payment. Success requires a valid DRUNIX commitment." busy={snapshot.busy} confirmLabel="Confirm request" onConfirm={async()=>{await flow.begin(command);setReview(false);}}>
-   <dl><DataRow label="Quantity" value={quantity+' ANSH'}/><DataRow label="Direction" value={kind==='ACQUISITION'?'Issuer → Investor A':'Investor A → Investor B'}/><DataRow label="Payment" value={'SIMULATED · '+payment}/><DataRow label="Ledger" value="DRUNIX · confirmation required"/></dl>
+   <dl><DataRow label="Quantity" value={quantity+' ANSH'}/><DataRow label="Direction" value={kind==='ACQUISITION'?'Issuer → '+(session?.display_name||'authenticated investor'):(session?.display_name||'Authenticated investor')+' → existing recipient'}/><DataRow label="Payment" value={'SIMULATED · '+payment}/><DataRow label="Ledger" value="DRUNIX · confirmation required"/></dl>
   </ReviewDialog>
  </Card>;
 }
@@ -85,12 +84,12 @@ export function ConnectedMarketplace(){
  </>;
 }
 export function ConnectedPortfolio({dashboard=false}:{dashboard?:boolean}){
- const {role}=useApp(),{live,balances}=useInvestor();
+ const {role,session}=useApp(),{live,balances}=useInvestor();
  if(role!=='INVESTOR')return <><SectionHeading title="Connected workspace" description="Investor acquisition and portfolio are integrated. Other business workflows remain unavailable."/><Card><Button asChild><Link to="/marketplace">View marketplace</Link></Button></Card></>;
  return <><SectionHeading title={dashboard?'Investor Dashboard':'Investor Portfolio'} description="Live DRUNIX ANSH holdings, with simulated investments kept separate." action={<Button asChild variant="secondary"><Link to="/marketplace">Acquire ANSH <ArrowRight size={15}/></Link></Button>}/>
-  <div className="grid gap-4 sm:grid-cols-2"><Metric label="Personally owned ANSH" value={live?live[1].quantity+' ANSH':balances.isFetching?'Loading…':'Unavailable'} description="Investor A · fresh ownership read"/><Metric label="Personal ANSH valuation" value="Not appraised" description="No verified market price · simulated REIT values kept separate"/></div>
+  <div className="grid gap-4 sm:grid-cols-2"><Metric label={(session?.display_name||'Investor')+' · personally owned ANSH'} value={live?live.quantity+' ANSH':balances.isFetching?'Loading…':'Unavailable'} description="Authenticated investor · fresh ownership read"/><Metric label="Personal ANSH valuation" value="Not appraised" description="No verified market price · simulated REIT values kept separate"/></div>
   {balances.error&&<p role="alert" className="mt-3 text-red-700">{errorFeedback(balances.error)}</p>}
-  <div className="mt-5 grid items-start gap-5 xl:grid-cols-2">{dashboard?<Card title="Your next opportunity" description="Explore assets or access illustrative liquidity without selling."><div className="flex flex-wrap gap-3"><Button asChild><Link to="/marketplace">Explore Assets</Link></Button><Button asChild variant="secondary"><Link to="/collateral">Borrow Against ANSH</Link></Button></div></Card>:<TransferForm kind="TRANSFER"/>}<Card title="ANSH position" description="Connected property · balances evaluated through FastAPI"><div className="flex items-center gap-3 rounded-lg bg-blue-50 p-4"><ShieldCheck className="text-[#1769AA]"/><div><p className="font-bold text-[#102B4E]">TechPark One</p><p className="mt-1 text-xs text-slate-600">Economic interests · holder {investorDemo.investor.slice(-4)}</p></div></div><p className="mt-5 text-sm leading-6 text-slate-600">Ownership changes are displayed after confirmed commitment and a fresh balance read. Cached transaction evidence is kept separate from current holdings.</p><div className="mt-5 flex items-center gap-2 text-xs font-semibold text-[#1769AA]"><ArrowRightLeft size={16}/> Acquire 4, then transfer 1 in the supervised demo</div><p className="mt-2 text-xs text-slate-500">These are suggested quantities, not assumed ledger outcomes.</p></Card></div>
+  <div className="mt-5 grid items-start gap-5 xl:grid-cols-2">{dashboard?<Card title="Your next opportunity" description="Explore assets or access illustrative liquidity without selling."><div className="flex flex-wrap gap-3"><Button asChild><Link to="/marketplace">Explore Assets</Link></Button><Button asChild variant="secondary"><Link to="/collateral">Borrow Against ANSH</Link></Button></div></Card>:<TransferForm kind="TRANSFER"/>}<Card title="ANSH position" description="Connected property · balances evaluated through FastAPI"><div className="flex items-center gap-3 rounded-lg bg-blue-50 p-4"><ShieldCheck className="text-[#1769AA]"/><div><p className="font-bold text-[#102B4E]">TechPark One</p><p className="mt-1 text-xs text-slate-600">Economic interests · authenticated holder {session?.user_id.slice(-4)}</p></div></div><p className="mt-5 text-sm leading-6 text-slate-600">Ownership changes are displayed after confirmed commitment and a fresh balance read. Cached transaction evidence is kept separate from current holdings.</p><div className="mt-5 flex items-center gap-2 text-xs font-semibold text-[#1769AA]"><ArrowRightLeft size={16}/> Acquire 4, then transfer 1 in the supervised demo</div><p className="mt-2 text-xs text-slate-500">These are suggested quantities, not assumed ledger outcomes.</p></Card></div>
   <TransferProgress/>
   <FinancingSummary/>
   <div className="mt-5 grid gap-5 xl:grid-cols-2"><Card title="Simulated investment values" description="Illustrative analytics · not connected to DRUNIX balances"><div className="flex items-center gap-3 text-[#1769AA]"><Landmark size={20}/><strong className="text-sm">Separate from your ANSH holdings</strong></div><dl className="mt-4"><DataRow label="Scenario property valuation" value={inr('1000000000',true)}/><DataRow label="Scenario price / ANSH" value={inr('10000')}/><DataRow label="Live investment valuation" value="Unavailable"/><DataRow label="Income illustrations" value={<Link to="/distributions" className="font-semibold text-[#1769AA]">View current-balance estimates</Link>}/></dl><p className="mt-3 text-xs text-slate-500">These synthetic values do not price your ledger position or establish distribution eligibility. Full scenario analytics remain available in Preview Mode.</p></Card><ReitHoldingsCard/></div>

@@ -32,12 +32,12 @@ const {SystemStatusView}=await import('../src/components/SystemStatus.tsx');
 const props={mode:'real',configured:true,data:null,loading:false,error:null,retry:()=>{}};
 const renderStatus=(overrides={})=>renderToStaticMarkup(h(SystemStatusView,{...props,...overrides}));
 
-test('connected business boundary does not render fixture children; preview renders them unchanged',()=>{
+test('connected property registry renders its authenticated workflow; preview renders fixtures unchanged',()=>{
  function Fixture(){return h('div',null,'500 ANSH PREVIEW-001');}
  for(const mode of ['real','preview']){
   const html=renderToStaticMarkup(h(MemoryRouter,null,h(ConnectedBoundary,{mode,path:'/registry',title:'Registry'},h(Fixture))));
   if(mode==='real'){
-   assert.match(html,/not integrated yet/);assert.doesNotMatch(html,/500 ANSH|PREVIEW-001/);
+   assert.match(html,/500 ANSH PREVIEW-001/);
   }else assert.match(html,/500 ANSH PREVIEW-001/);
  }
 });

@@ -16,9 +16,9 @@ export function parseCash(value:unknown,holder:string):Cash{if(!isRecord(value)|
 export function parseEntry(value:unknown):CashEntry{if(!isRecord(value)||typeof value.id!=='string'||!['DEMO_FUNDS','WITHDRAWAL','DISBURSEMENT','REPAYMENT'].includes(String(value.kind))||!amount(value.amount_minor)||value.amount_minor==='0'||!amount(value.balance_after_minor)||value.currency!=='INR'||value.simulated!==true||value.status!=='SIMULATED_COMPLETED'||typeof value.created_at!=='string'||!Number.isFinite(Date.parse(value.created_at))||!(value.loan_id===null||typeof value.loan_id==='string'))return invalid();return value as CashEntry;}
 
 /** Stable cash key survives navigation. Only explicit confirmation sends a request. */
-export function createCashFlow(store:()=>Pick<Storage,'getItem'|'setItem'|'removeItem'>,newKey:()=>string){
+export function createCashFlow(store:()=>Pick<Storage,'getItem'|'setItem'|'removeItem'>,newKey:()=>string,userId='anonymous'){
  let pending=false;
- const storageKey='tokansh-demo-cash-attempt-v1';
+ const storageKey='tokansh-demo-cash-attempt-v1:'+userId;
  function snapshot(){const raw=store().getItem(storageKey);if(!raw)return null;let value:unknown;try{value=JSON.parse(raw);}catch{return invalid();}
  if(!isRecord(value)||!['fund','withdraw'].includes(String(value.action))||!amount(value.amount)||typeof value.key!=='string'||!value.key)return invalid();
  return value as {action:'fund'|'withdraw';amount:string;key:string};}

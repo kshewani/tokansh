@@ -67,8 +67,7 @@ export function scenarioEntitlement(phase:Phase) {
  source:'UI_PREVIEW_SNAPSHOT' as const, verified:false};
 }
 export const roleOptions:{role:Role;label:string;description:string}[]=[
- {role:'ISSUER',label:'Admin / Issuer (Meera)',description:'Property registry, approval, issuance, distribution'},
- {role:'INVESTOR',label:'Investor (Aarav)',description:'Marketplace, portfolio, purchases, pledge, income'},
+ {role:'INVESTOR',label:'Investor',description:'Marketplace, portfolio, purchases, pledge, income'},
  {role:'LENDER',label:'Lender',description:'Simulated financing, assessment and collateral review'}
 ];
 export function phaseHelp(p:Phase):string{return phases.find(x=>x.id===p)?.description||'';}

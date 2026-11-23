@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workspaceRoles,landing,loanActions,readInstitution} from '../src/app/workspace.ts';
+import {workspaceRoles,landing,loanActions} from '../src/app/workspace.ts';
 import {parseLenders,parseCash,parseEntry,createCashFlow} from '../src/api/demoFinance.ts';
 import {RequestError} from '../src/api/client.ts';
 const entry={id:'cash-1',kind:'DEMO_FUNDS',amount_minor:'100',balance_after_minor:'100',loan_id:null,created_at:'2026-11-21T10:00:00Z',currency:'INR',simulated:true,status:'SIMULATED_COMPLETED'};
@@ -12,8 +12,7 @@ test('two login workspaces, distinct landing pages and state-specific decisions'
  assert.deepEqual(loanActions('LENDER','ASSESSED'),['approve','reject']);assert.deepEqual(loanActions('LENDER','DISBURSED'),[]);
  assert.deepEqual(loanActions('INVESTOR','DISBURSED'),['repay']);assert.deepEqual(loanActions('INVESTOR','REPAID'),['release']);
 });
-test('institution preference survives reload; catalogue rejects malformed or duplicate offers',()=>{
- const store=storage();assert.equal(readInstitution(store),'axim-bank');store.setItem('tokansh-lender','real-finance');assert.equal(readInstitution(store),'real-finance');
+test('lender catalogue rejects malformed or duplicate offers; institution comes from the session',()=>{
  const item={id:'axim-bank',name:'Axim Bank',simulated:true,offers:[{id:'standard',annual_rate_bps:1000,max_ltv_percent:60,tenures_months:[6,12]}]};
  assert.equal(parseLenders([item])[0].offers[0].annual_rate_bps,1000);
  for(const v of [[item,item],[{...item,simulated:false}],[{...item,offers:[{...item.offers[0],max_ltv_percent:99}]}],[{...item,offers:[item.offers[0],item.offers[0]]}]])assert.throws(()=>parseLenders(v));
@@ -38,7 +37,7 @@ test('rapid cash clicks send once; confirmed insufficient funds permit explicit 
  assert.equal(flow.snapshot(),null);await flow.run('fund','100',async()=>entry);
 });
 test('corrupt recovery storage fails before any cash request',async()=>{
- const store=storage();store.setItem('tokansh-demo-cash-attempt-v1','broken');let calls=0;
+ const store=storage();store.setItem('tokansh-demo-cash-attempt-v1:anonymous','broken');let calls=0;
  await assert.rejects(createCashFlow(()=>store,()=> 'k').run('fund','100',async()=>{calls++;return entry;}));assert.equal(calls,0);
 });
 

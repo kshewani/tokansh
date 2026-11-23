@@ -145,7 +145,7 @@ def configuration():
     try:
         with sqlite3.connect('file:'+quote(str(expected.resolve()))+'?mode=ro', uri=True) as db:
             db.execute('PRAGMA query_only=ON')
-            require(db.execute('SELECT version_num FROM alembic_version').fetchall() == [('0002_registration',)],
+            require(db.execute('SELECT version_num FROM alembic_version').fetchall() == [('0003_demo_cash',)],
                     'SQLite migration revision must be 0002_registration; migrate only under separate authorization.')
             for table in ('properties', 'application_operations', 'property_events', 'ledger_operations'):
                 db.execute(f'SELECT * FROM {table} LIMIT 0')

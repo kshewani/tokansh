@@ -51,7 +51,11 @@ Successful responses use `{data, meta: {correlation_id}}`. Application errors us
 | GET | `/api/v1/properties` | Paginated property records |
 | GET | `/api/v1/properties/{property_id}` | Fetch a property by its generated UUID |
 
-Property endpoints require `X-Demo-Role`. Only `ADMIN` and `ISSUER` can create; all four supported demo roles can read. Actors are predefined application UUIDs. This is **spoofable local demo identity selection**, not production authentication or ledger authorization. Production configuration rejects enabled demo authentication; disabling it leaves property routes unavailable until real authentication is implemented. There is no global active-role state shared between users.
+Protected property endpoints require `Authorization: Bearer <demo-session>`. Authenticated investor, legacy issuer, and admin sessions can create new property drafts; the authenticated actor UUID is stored as the property-specific `issuer_id`. Lender sessions can read but cannot create. `X-Demo-Role` is ignored and cannot authorize requests. Production configuration rejects enabled demo authentication; disabling it leaves property routes unavailable until real authentication is implemented.
+
+Property creation is currently the issuance initiation boundary. DRUNIX property registration remains an operator-only workflow; this backend does not yet expose approval, tokenization, or initial ANSH allocation through an investor-facing route. Existing issuer `.002` records and inventory therefore remain unchanged.
+
+`POST /api/v1/auth/login` accepts `{username,password}`. Investor usernames are `Aarav` and `Meera` (case-insensitive); lender usernames are the server-owned catalogue IDs `axim-bank`, `real-finance` and `horizon-credit`. Any nonempty password is accepted for this local demo. The response returns an opaque bearer token, role, stable user UUID and optional lender organization. `POST /api/v1/auth/logout` revokes the token and `GET /api/v1/auth/me` validates it. Sessions are in-memory and are invalidated by process restart; tokens are never logged. Aarav retains UUID `00000000-0000-4000-8000-000000000003`; Meera uses `00000000-0000-4000-8000-000000000006`; issuer inventory remains UUID `00000000-0000-4000-8000-000000000002` and is not an investor identity.
 
 Creation also requires `Idempotency-Key` (1–128 characters using the same character set as correlation IDs). Its uniqueness scope is the demo actor; request fingerprints also include method, endpoint and canonical validated payload. The same actor/key/payload replays the original 201 resource after restarts; conflicting reuse returns 409 `IDEMPOTENCY_CONFLICT`. Incomplete persisted operations return `RECONCILIATION_REQUIRED`, without creating another property. A database uniqueness constraint handles concurrent duplicates.
 
@@ -109,13 +113,13 @@ M2-specific error codes include `DATABASE_UNAVAILABLE`, `AUTHENTICATION_REQUIRED
 
 See [gateway setup, private API and verification](../gateway/README.md). Start that service separately, then configure `DRUNIX_GATEWAY_URL=http://127.0.0.1:8001` and optionally `DRUNIX_GATEWAY_TIMEOUT_SECONDS=7` in the backend environment. With no URL, reads fail explicitly; there is no fallback. HTTPX is now a runtime dependency (the existing lock already pins it).
 
-`GET /api/v1/diagnostics/drunix/basic/assets` requires `X-Demo-Role: ADMIN`. It returns the standard `{data,meta}` envelope containing `source: DRUNIX_EVALUATE`, `channel`, `chaincode`, `function`, `observed_at` and the basic-chaincode assets in `result`. These are diagnostic sample assets, not TokANSH properties or ANSH holdings. Errors are structured and sanitized. HTTP 502 means malformed/untrusted upstream data, 503 unavailable connectivity and 504 timeout. Correlation IDs propagate across both HTTP boundaries; reads do not need idempotency keys.
+`GET /api/v1/diagnostics/drunix/basic/assets` requires an authenticated admin session. It returns the standard `{data,meta}` envelope containing `source: DRUNIX_EVALUATE`, `channel`, `chaincode`, `function`, `observed_at` and the basic-chaincode assets in `result`. These are diagnostic sample assets, not TokANSH properties or ANSH holdings. Errors are structured and sanitized. HTTP 502 means malformed/untrusted upstream data, 503 unavailable connectivity and 504 timeout. Correlation IDs propagate across both HTTP boundaries; reads do not need idempotency keys.
 
 The shared synchronous HTTPX client is injected through `get_gateway` and closed at application shutdown. Proxy environment variables and redirects are disabled; only explicit loopback origins are accepted. Responses have bounded size, strict schemas, fresh observation timestamps and matching correlation metadata. Python 3.10 parsing supports Go RFC3339Nano timestamps. No signing material enters Python.
 
 System Status probes gateway liveness and actual GetAllAssets evaluation independently. Gateway liveness alone never proves DRUNIX connectivity. A failed bridge makes network status UNKNOWN; a successful bridge returning a ledger connectivity error makes it UNAVAILABLE. An invalid diagnostic payload leaves connectivity UNKNOWN. Peer/orderer/validation/database internals remain UNKNOWN. Read connectivity does not prove transaction submission or commitment: `/ready` remains 503, transaction capability remains UNAVAILABLE and `last_ledger_operation` stays null. The existing configuration field `ledger_integration: NOT_IMPLEMENTED` continues to describe core ANSH transaction integration, preserving its M2 contract.
 
-Frontend behavior and Connected Mode business restrictions are unchanged. Local demo role headers remain spoofable; this endpoint is not production authentication. No submission, automatic retries, ledger transaction IDs or commitment evidence are implemented.
+The current frontend still sends the retired role header and therefore requires the subsequent frontend integration pass to send bearer sessions. No submission, automatic retries, ledger transaction IDs or commitment evidence are implemented here.
 
 ## M3.3b private transaction foundation
 
@@ -137,9 +141,9 @@ The browser sends no bearer secret or operator capability. FastAPI attaches the
 Gateway bearer and operator capability only to its private Gateway requests.
 `TOKANSH_TRANSFER_SECRET` is not required or used. Never put Gateway credentials
 in Vite configuration, browser storage or Git. Production transfers fail closed.
-Browser-facing routes reuse the existing `X-Demo-Role` selection and actor/ownership
-checks. This spoofable identity mechanism is accepted only for the controlled local
-hackathon demo, not production authentication or proof of holder consent.
+Browser-facing routes use the server-issued bearer session and actor/ownership
+checks. The session mechanism is intended only for the controlled local hackathon
+demo, not production authentication or proof of holder consent.
 Use the existing persistent, migrated, owner-only SQLite database; preserve its
 backups and recovery artifacts privately.
 
@@ -151,10 +155,11 @@ backups and recovery artifacts privately.
 | POST | `/api/v1/ansh/transfers/{operation_id}/reconcile` | Commit-status query only; updates SQLite, never resubmits |
 | GET | `/api/v1/ansh/balances/{property_id}/{holder_id}` | Fresh authenticated Gateway balance evaluation |
 
-Transfer initiation and status/reconcile require `X-Demo-Role: INVESTOR` or `ISSUER`
-only; no Authorization header is needed. Initiation additionally
+Transfer initiation and status/reconcile require a bearer session for an investor
+or issuer only. Initiation additionally
 requires `Idempotency-Key` (1–128 letters/digits/`._:-`). Balance reads require only
-a supported demo role. Existing React origins and demo request headers are unchanged.
+a supported session identity. Existing React origins remain configured for the
+staged frontend integration.
 All responses preserve `{data,meta}` and correlation IDs. Example acquisition body:
 
 ```json
@@ -215,9 +220,9 @@ checkpoint. No live transfers were executed during implementation.
 
 ## Financing and demo cash wallet — local hackathon only
 
-All routes use `{data,meta}` / structured error envelopes and existing
-`X-Demo-Role: INVESTOR` or `LENDER`. Demo-role headers are spoofable local workspace
-selection, **not production authentication**. Gateway secrets remain server-side.
+All routes use `{data,meta}` / structured error envelopes and validated bearer
+sessions for investors or lenders. Demo-role headers are ignored. Gateway secrets
+remain server-side.
 No new credentials are required. Production execution is disabled.
 
 | Method | Endpoint | Role / behavior |
@@ -240,7 +245,7 @@ The single LENDER persona can select any listed institution; this does not estab
 real institutional membership or tenant isolation. Investors cannot self-assess,
 approve, reject or disburse, even when repeating an already-completed action.
 
-Application example (`X-Demo-Role: INVESTOR`, stable `Idempotency-Key`):
+Application example (Aarav bearer session, stable `Idempotency-Key`):
 
 ```json
 {"property_id":"f6169750-4676-4e99-887f-2bc5471bd518","asset_class":"ANSH","quantity":1,"lender_id":"axim-bank","offer_id":"axim-standard","unit_value_minor":"1000000","ltv_percent":60,"annual_rate_bps":1000,"term_months":12}

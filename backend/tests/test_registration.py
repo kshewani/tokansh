@@ -97,8 +97,8 @@ def test_private_http_client_sanitizes_failures(kind):
 
 
 def test_no_public_write_route_or_demo_authorization(application):
-    from fastapi.testclient import TestClient
-    with TestClient(application) as http:
+    from client_support import SyncASGIClient
+    with SyncASGIClient(application) as http:
         assert http.post('/api/v1/registrations',headers={'X-Demo-Role':'ADMIN'},json=COMMAND).status_code==404
     s,g=service(application)
     with pytest.raises(ApplicationError):s.prepare(COMMAND,'ADMIN')
