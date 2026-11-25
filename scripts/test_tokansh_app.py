@@ -147,7 +147,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(db.exists())
         with sqlite3.connect(db) as connection:
             connection.execute('CREATE TABLE alembic_version(version_num TEXT)')
-            connection.execute("INSERT INTO alembic_version VALUES ('0004')")
+            connection.execute("INSERT INTO alembic_version VALUES ('0005')")
             for table in ('properties','application_operations','property_events'):connection.execute('CREATE TABLE '+table+'(id TEXT)')
             connection.execute('CREATE TABLE ledger_operations(operation_id TEXT,property_id TEXT,state TEXT,artifact_json TEXT,transaction_id TEXT)')
         db.chmod(0o600);before=db.read_bytes()
