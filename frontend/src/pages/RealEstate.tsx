@@ -189,6 +189,7 @@ export function Marketplace() {
   async function confirm() {
     if (stage === 'order' && listing) {
       const order = await run<Order>({path: route.orders, label: 'Purchase order', body: {listing_id: listing.id, quantity, currency: 'INR'}});
+      setOutcome('SUCCESS');  // each new payment starts from "succeeds"; failure must be chosen deliberately
       setStage(order && order.status === 'PAYMENT_PENDING' ? order : null);
       return;
     }
@@ -234,7 +235,7 @@ export function Marketplace() {
             <td>{o.payments.length ? o.payments.map(p => <div key={p.id} className="mb-1 flex items-center gap-1.5"><Status value={p.status}/>
               <span className="text-[10px] text-slate-500">{p.kind} · {p.reference}</span></div>) : <span className="text-xs text-slate-400">Not paid</span>}</td>
             <td className="text-right"><LedgerRef op={o.transfer}/></td>
-            <td>{isInvestor && o.status === 'PAYMENT_PENDING' && <Button size="sm" onClick={() => setStage(o)}>Pay</Button>}</td>
+            <td>{isInvestor && o.status === 'PAYMENT_PENDING' && <Button size="sm" onClick={() => { setOutcome('SUCCESS'); setStage(o); }}>Pay</Button>}</td>
           </tr>)}</tbody></table></div>}
     </Card>
     <ReviewDialog open={!!stage} onOpenChange={v => !v && setStage(null)} onConfirm={confirm} busy={submitting}
