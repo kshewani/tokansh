@@ -183,6 +183,13 @@ class EntitlementStatus(S):  # PROPOSED
     FAILED = "FAILED"
 
 
+class WalletEntryKind(S):  # simulated demo cash (adopted from the connected-mode branch)
+    DEMO_FUNDS = "DEMO_FUNDS"
+    WITHDRAWAL = "WITHDRAWAL"
+    DISBURSEMENT = "DISBURSEMENT"
+    REPAYMENT = "REPAYMENT"
+
+
 class EventSource(S):
     DRUNIX_LEDGER = "DRUNIX_LEDGER"
     APPLICATION = "APPLICATION"

@@ -49,6 +49,12 @@ needs `PledgeANSH`/`ReleasePledge` with an available-balance check in `TransferA
 | `DRUNIX_GATEWAY_URL` | Loopback literal only, e.g. `http://127.0.0.1:8001` |
 | `TOKANSH_GATEWAY_SECRET`, `TOKANSH_OPERATOR_SECRET` | The same two distinct 64-hex secrets as the gateway process |
 | `DRUNIX_SIGNER` | Optional pin `Org1MSP:<sha256 of signer certificate>`; artifacts must match |
+
+The gateway derives its signer from the certificate it is configured with (`DRUNIX_CERT_PATH`), so it
+can run on any DRUNIX network. The chaincode, however, still pins one certificate fingerprint in
+`chaincode/tokansh/contract/contract.go`: another network's identity needs a reviewed chaincode
+package with its own fingerprint. The pin is deliberately not removed, because removing it would let
+any identity that passes the remaining MSP checks register, issue and transfer.
 | `DRUNIX_GATEWAY_TIMEOUT_SECONDS` | Default 7 |
 
 The backend holds the operator capability so the UI's Approve, Issue, Buy and Transfer actions can

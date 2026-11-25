@@ -87,16 +87,25 @@ def api(tmp_path, ledger):
     app.state.engine.dispose()
 
 
+LOGINS = {"meera": "meera", "admin": "admin", "aarav": "aarav", "lender": "axim-bank",
+          "real-finance": "real-finance", "horizon-credit": "horizon-credit"}
+
+
 class Actor:
-    """Calls the API as one demonstration user, with a fresh Idempotency-Key per call."""
+    """Signs in as one demonstration user, then calls the API with its bearer token
+    and a fresh Idempotency-Key per call."""
 
     def __init__(self, client, key):
         self.client, self.id = client, sid(f"user:{key}")
+        r = client.post("/api/v1/auth/login", json={"username": LOGINS[key], "password": "demo"})
+        assert r.status_code == 200, r.json()
+        self.token = r.json()["data"]["access_token"]
+        self.auth = {"Authorization": "Bearer " + self.token}
         self._n = 0
 
     def _h(self, idem=None):
         self._n += 1
-        return {"X-Demo-User-Id": self.id, "Idempotency-Key": idem or f"{self.id}-{self._n}"}
+        return {**self.auth, "Idempotency-Key": idem or f"{self.id}-{self._n}"}
 
     def get(self, path, **params):
         return self.client.get(path, headers=self._h(), params=params)

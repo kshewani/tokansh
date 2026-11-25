@@ -154,6 +154,7 @@ func TestTransferPreparationErrors(t *testing.T) {
 	}
 }
 func TestIssuanceArtifactEncodingUnchanged(t *testing.T) {
+	const Signer = "Org1MSP:test-only-signer"
 	a := IssuanceArtifact{1, "mychannel", "tokansh", Signer, "IssueANSH", issuanceCommand(), "digest", "tx", []byte{1}, []byte{2}, ""}
 	// Explicit old struct layout guards the existing JSON/HMAC recovery contract.
 	old := struct {

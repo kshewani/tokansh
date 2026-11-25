@@ -18,6 +18,7 @@ from app.ledger import executor
 from app.ledger.port import LedgerPort
 from app.modules.common import get_or_404, user_brief
 from app.modules.ledger_reads import ledger_position
+from app.modules import wallet
 from app.modules.marketplace import order_view
 
 router = APIRouter(prefix="/api/v1/portfolios", tags=["Portfolio"])
@@ -91,6 +92,7 @@ def summary(db: Session, owner: m.User) -> dict:
             "reit": {"holdings": len(reits), "purchase_value": from_minor(sum_minor(reits, "purchase_value")),
                      "illustrative_market_value": from_minor(sum_minor(reits, "illustrative_market_value")),
                      "is_simulated": True},
+            "cash": {"balance": from_minor(wallet.balance(db, owner.id)), "simulated": True},
             "financing": {"active_pledges": len(active_pledges),
                           "outstanding_loans": from_minor(sum(l.outstanding_minor for l in loans)),
                           "is_simulated": True},

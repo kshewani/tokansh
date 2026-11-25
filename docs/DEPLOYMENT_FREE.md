@@ -19,7 +19,8 @@ Docker Compose, including DRUNIX).
 
 - Render free instances **sleep after ~15 minutes idle**; the first request then takes up to ~1 minute.
 - Render's free disk is **not persistent**: the SQLite demo database is recreated (empty, with the demo
-  users) after every restart, sleep or redeploy.
+  users) after every restart, sleep or redeploy. Sign-in sessions are in memory too, so after the API
+  sleeps the website asks you to sign in again.
 - Free plans and their limits change; check Render's and Vercel's current pricing pages.
 
 ## 1. API on Render
@@ -44,7 +45,7 @@ Docker Compose, including DRUNIX).
 ## 3. Check it
 
 - System Status page: API **CONNECTED**, DRUNIX gateway **UNAVAILABLE**.
-- Sign in as Admin / Issuer → Property Registry → onboard and submit TechPark One → approve:
+- Sign in as Admin / Issuer (any password) → Property Registry → onboard and submit TechPark One → approve:
   the approval is saved and the registration shows `FAILED · LEDGER_UNAVAILABLE` with no transaction id.
 
 ## 4. Remove

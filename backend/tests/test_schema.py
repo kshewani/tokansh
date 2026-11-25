@@ -15,7 +15,7 @@ EXPECTED_TABLES = {  # ARCHITECTURE section 13 plus the documented additions
     "ledger_operations", "ledger_events", "ledger_event_cursors", "reconciliation_cases",
     "idempotency_records", "collateral_pledges", "loans", "credit_assessments", "loan_repayments",
     "ownership_snapshots", "ownership_snapshot_lines", "distributions", "distribution_entitlements",
-    "reit_holdings", "asset_events", "audit_events",
+    "reit_holdings", "asset_events", "audit_events", "demo_cash_accounts", "demo_cash_entries",
 }
 
 

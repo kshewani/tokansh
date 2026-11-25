@@ -23,6 +23,7 @@ GROUPS = [
     ("Ledger operations and reconciliation", ["ledger_operations", "ledger_events", "ledger_event_cursors",
                                               "reconciliation_cases", "idempotency_records"]),
     ("Collateral financing", ["collateral_pledges", "loans", "credit_assessments", "loan_repayments"]),
+    ("Demo cash wallet (simulated)", ["demo_cash_accounts", "demo_cash_entries"]),
     ("Distributions", ["ownership_snapshots", "ownership_snapshot_lines", "distributions",
                        "distribution_entitlements"]),
     ("REIT holdings", ["reit_holdings"]),

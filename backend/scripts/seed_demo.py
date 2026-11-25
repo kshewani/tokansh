@@ -34,11 +34,14 @@ def sid(name: str) -> str:
     return str(uuid.uuid5(NS, name))
 
 
+# (seed key, display name, email, role, demo login username). Lenders are fictional institutions.
 USERS = [
-    ("meera", "Meera", "meera@demo.tokansh.example", UserRole.ISSUER),
-    ("admin", "Platform Admin", "admin@demo.tokansh.example", UserRole.ADMIN),
-    ("aarav", "Aarav", "aarav@demo.tokansh.example", UserRole.INVESTOR),
-    ("lender", "Demo Lender", "lender@demo.tokansh.example", UserRole.LENDER),
+    ("meera", "Meera", "meera@demo.tokansh.example", UserRole.ISSUER, "meera"),
+    ("admin", "Platform Admin", "admin@demo.tokansh.example", UserRole.ADMIN, "admin"),
+    ("aarav", "Aarav", "aarav@demo.tokansh.example", UserRole.INVESTOR, "aarav"),
+    ("lender", "Axim Bank", "axim-bank@demo.tokansh.example", UserRole.LENDER, "axim-bank"),
+    ("real-finance", "Real Finance", "real-finance@demo.tokansh.example", UserRole.LENDER, "real-finance"),
+    ("horizon-credit", "Horizon Credit", "horizon-credit@demo.tokansh.example", UserRole.LENDER, "horizon-credit"),
 ]
 
 # Synthetic REIT rows: invented names and values, labelled simulated (ADR-019).
@@ -57,9 +60,9 @@ def _add(session: Session, model, pk: str, **values) -> bool:
 
 def seed(session: Session, with_property: bool = False) -> dict:
     created = {"users": 0, "reit_holdings": 0, "properties": 0}
-    for key, name, email, role in USERS:
+    for key, name, email, role, username in USERS:
         created["users"] += _add(session, m.User, sid(f"user:{key}"), full_name=name, email=email,
-                                 role=role, ledger_identity_ref=key)
+                                 role=role, ledger_identity_ref=username)
     session.flush()
     for ident, name, qty, cost, value in REITS:
         created["reit_holdings"] += _add(

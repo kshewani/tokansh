@@ -13,12 +13,14 @@ from sqlalchemy.orm import sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
+from app.core.auth import SessionStore, build_router as auth_router
+from app.core.deps import current_user, get_db
 from app.core.errors import ApiError
 from app.db.session import make_engine
 from app.ledger.gateway_client import GatewayLedgerClient
 from app.ledger.port import LedgerPort
-from app.modules import (audit_api, distributions, financing, issuance, marketplace, portfolio, properties, system,
-                         transfers)
+from app.modules import (audit_api, distributions, financing, issuance, lenders, marketplace, portfolio, properties,
+                         system, transfers, wallet)
 
 log = logging.getLogger("tokansh")
 
@@ -43,6 +45,7 @@ def create_app(settings: Settings | None = None, ledger: LedgerPort | None = Non
     app.state.engine = engine
     app.state.sessionmaker = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     app.state.ledger = ledger if ledger is not None else GatewayLedgerClient(settings)
+    app.state.sessions = SessionStore()
 
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
                        allow_origin_regex=settings.cors_origin_regex, allow_credentials=True,
@@ -76,7 +79,9 @@ def create_app(settings: Settings | None = None, ledger: LedgerPort | None = Non
         log.exception("unhandled error", extra={"correlation_id": getattr(request.state, "correlation_id", None)})
         return _error(request, 500, "INTERNAL_ERROR", "An unexpected error occurred.")
 
-    for module in (system, properties, issuance, marketplace, transfers, portfolio, financing, distributions, audit_api):
+    app.include_router(auth_router(get_db, current_user))
+    for module in (system, properties, issuance, marketplace, transfers, portfolio, financing, lenders, wallet,
+                   distributions, audit_api):
         app.include_router(module.router)
     return app
 

@@ -2,7 +2,7 @@ import {useState} from 'react';
 import {AlertTriangle} from 'lucide-react';
 import {useApi, useApp} from '../app/context';
 import {route} from '../api/contracts';
-import type {DemoUser, Loan, Page, Pledge, Portfolio} from '../api/contracts';
+import type {DemoUser, LenderInstitution, Loan, Page, Pledge, Portfolio} from '../api/contracts';
 import {inr, integer} from '../lib/format';
 import {Button} from '../components/ui/button';
 import {Card, EmptyState, Metric, SectionHeading} from '../components/ui/card';
@@ -101,15 +101,22 @@ export function Lending() {
   const [pledgeId, setPledgeId] = useState('');
   const pledge = available.find(p => p.id === pledgeId) ?? available[0];
   const [principal, setPrincipal] = useState('1200000');
-  const [rateBps, setRateBps] = useState(1000);
-  const [termMonths, setTermMonths] = useState(12);
+  const catalogue = useApi<{items: LenderInstitution[]}>(isLender ? null : route.lenders);
+  const institutions = catalogue.data?.items ?? [];
+  const [lenderId, setLenderId] = useState('');
+  const lender = institutions.find(l => l.id === lenderId) ?? institutions[0];
+  const offer = lender?.offers[0];
+  const [termChoice, setTermChoice] = useState<number | null>(null);
+  const termMonths = offer && termChoice !== null && offer.tenures_months.includes(termChoice) ? termChoice
+    : offer?.tenures_months.includes(12) ? 12 : offer?.tenures_months[0] ?? 12;
   const [repay, setRepay] = useState('');
   const [action, setAction] = useState<LoanAction | null>(null);
 
   async function confirm() {
     if (!action) return;
     if (action.kind === 'apply' && pledge) await run({path: route.loanApplications, label: 'Loan application (simulated)',
-      body: {pledge_id: pledge.id, principal, currency: 'INR', interest_rate_bps: rateBps, term_months: termMonths}});
+      body: {pledge_id: pledge.id, principal, currency: 'INR', lender_id: lender?.id, offer_id: offer?.id,
+        interest_rate_bps: offer?.annual_rate_bps, term_months: termMonths}});
     else if (action.kind === 'repay') await run({path: `${route.loans}/${action.loan.id}/repayments`, label: 'Repayment (simulated)', body: {amount: repay || action.loan.total_outstanding, currency: 'INR'}});
     else if (action.kind !== 'apply') await run({path: `${route.loans}/${action.loan.id}/${action.kind}`, label: `Loan ${action.kind} (simulated)`, body: {}});
     setAction(null);
@@ -124,10 +131,10 @@ export function Lending() {
             {available.map(p => <option key={p.id} value={p.id}>{p.property_name} · {integer(p.quantity)} ANSH · {inr(p.collateral_value)}</option>)}</SelectField>
           <Field label="Principal (INR)" id="loan-principal" inputMode="decimal" value={principal} onChange={e => setPrincipal(e.target.value)}
             error={money.test(principal) ? undefined : 'Up to two decimal places'}/>
-          <SelectField label="Annual rate (illustrative)" id="loan-rate" value={rateBps} onChange={e => setRateBps(Number(e.target.value))}>
-            {[0, 800, 1000, 1200].map(b => <option key={b} value={b}>{b / 100}% simple</option>)}</SelectField>
-          <SelectField label="Term" id="loan-term" value={termMonths} onChange={e => setTermMonths(Number(e.target.value))}>
-            {[6, 12, 24, 36].map(t => <option key={t} value={t}>{t} months</option>)}</SelectField>
+          <SelectField label="Lender (fictional)" id="loan-lender" value={lender?.id ?? ''} onChange={e => { setLenderId(e.target.value); setTermChoice(null); }}>
+            {institutions.map(l => <option key={l.id} value={l.id}>{l.name} · {l.offers[0]?.annual_rate_percent}% · max LTV {l.offers[0]?.effective_max_ltv_percent}%</option>)}</SelectField>
+          <SelectField label="Term" id="loan-term" value={termMonths} onChange={e => setTermChoice(Number(e.target.value))}>
+            {(offer?.tenures_months ?? [12]).map(t => <option key={t} value={t}>{t} months</option>)}</SelectField>
           <div className="flex items-end"><Button type="submit" disabled={submitting}>Review application</Button></div>
         </form>}
     </Card>}
@@ -153,11 +160,13 @@ export function Lending() {
       title={action ? (action.kind === 'apply' ? 'Simulated loan application' : `Simulated loan: ${action.kind}`) : ''}
       description="Lender-simulator workflow. No real money moves.">
       {action?.kind === 'apply' && <dl><DataRow label="Collateral" value={inr(pledge?.collateral_value)}/><DataRow label="Principal" value={inr(principal)}/>
-        <DataRow label="Terms" value={`${rateBps / 100}% simple interest · ${termMonths} months`}/><DataRow label="Interest and total" value="Calculated by the backend"/></dl>}
+        <DataRow label="Lender" value={lender ? `${lender.name} · ${offer?.name} offer` : '—'}/>
+        <DataRow label="Terms" value={`${offer?.annual_rate_percent ?? '—'}% simple interest · ${termMonths} months · max LTV ${offer?.effective_max_ltv_percent ?? '—'}%`}/>
+        <DataRow label="Interest and total" value="Calculated by the backend"/></dl>}
       {action && action.kind !== 'apply' && <dl><DataRow label="Borrower" value={action.loan.borrower.name}/><DataRow label="Outstanding (principal + interest)" value={inr(action.loan.total_outstanding)}/>
         <DataRow label="LTV" value={action.loan.ltv_percent + '%'}/></dl>}
       {action?.kind === 'repay' && <div className="mt-3"><Field label="Repayment amount (INR)" id="repay-amount" inputMode="decimal" value={repay}
-        onChange={e => setRepay(e.target.value)} help="Applied to interest first, then principal. Cannot exceed the outstanding amount."/></div>}
+        onChange={e => setRepay(e.target.value)} help="Paid from your demo wallet; applied to interest first, then principal."/></div>}
     </ReviewDialog>
   </>;
 }

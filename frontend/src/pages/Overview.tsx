@@ -3,11 +3,13 @@ import {ChevronRight, FileClock, RefreshCw} from 'lucide-react';
 import {Link} from 'react-router-dom';
 import {useApi, useApp} from '../app/context';
 import {route} from '../api/contracts';
-import type {AssetEvent, Dashboard, Distribution, Page, Portfolio as PortfolioData} from '../api/contracts';
+import type {AssetEvent, Dashboard, Distribution, Page, Portfolio as PortfolioData, Wallet} from '../api/contracts';
 import {inr, integer, shortRef, when} from '../lib/format';
 import {Card, EmptyState, Metric, SectionHeading} from '../components/ui/card';
 import {Button} from '../components/ui/button';
 import {Loading, QueryError, Source, Status} from '../components/ui/status';
+import {ReviewDialog} from '../components/ui/dialog';
+import {DataRow, Field} from '../components/ui/form';
 
 function QuickLink({to, label}: {to: string; label: string}) {
   return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;
@@ -52,6 +54,35 @@ export function Overview() {
   </>;
 }
 
+const cash = /^\d{1,13}(\.\d{1,2})?$/;
+
+/** Simulated demo cash: loan disbursements land here and repayments come from here. */
+export function WalletCard() {
+  const {run, submitting} = useApp();
+  const w = useApi<Wallet>(route.wallet);
+  const [amount, setAmount] = useState('120000');
+  const [open, setOpen] = useState<null | 'fund' | 'withdraw'>(null);
+  return <Card title="Demo wallet" description="SIMULATED INR cash: no bank and no real money" action={<Source value="PAYMENT_SIMULATOR" simulated/>}>
+    {w.isLoading ? <Loading/> : w.error ? <QueryError error={w.error}/> : <>
+      <p className="font-financial text-2xl font-extrabold text-[#102B4E]">{inr(w.data?.balance)}</p>
+      <form className="mt-4 flex flex-wrap items-end gap-2" onSubmit={e => e.preventDefault()}>
+        <div className="min-w-[160px] flex-1"><Field label="Amount (INR)" id="wallet-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
+          error={cash.test(amount) ? undefined : 'Up to two decimal places'}/></div>
+        <Button type="button" size="sm" disabled={!cash.test(amount) || submitting} onClick={() => setOpen('fund')}>Add demo funds</Button>
+        <Button type="button" size="sm" variant="secondary" disabled={!cash.test(amount) || submitting} onClick={() => setOpen('withdraw')}>Withdraw</Button>
+      </form>
+      {!!w.data?.entries.length && <dl className="mt-4">{w.data.entries.slice(0, 5).map(e => <DataRow key={e.id}
+        label={`${e.kind.replaceAll('_', ' ').toLowerCase()} · ${when(e.created_at)}`}
+        value={`${['WITHDRAWAL', 'REPAYMENT'].includes(e.kind) ? '−' : '+'}${inr(e.amount)} → ${inr(e.balance_after)}`}/>)}</dl>}
+    </>}
+    <ReviewDialog open={!!open} onOpenChange={v => !v && setOpen(null)} busy={submitting} confirmLabel="Confirm"
+      title={open === 'fund' ? 'Add demo funds' : 'Withdraw demo cash'} description="Simulated cash only. No bank account is contacted."
+      onConfirm={async () => { if (open) await run({path: `${route.wallet}/${open}`, label: open === 'fund' ? 'Demo funds' : 'Withdrawal', body: {amount}}); setOpen(null); }}>
+      <dl><DataRow label="Amount" value={inr(amount)}/><DataRow label="Current balance" value={inr(w.data?.balance)}/></dl>
+    </ReviewDialog>
+  </Card>;
+}
+
 export function Portfolio() {
   const {session} = useApp();
   const [verify, setVerify] = useState(false);
@@ -90,6 +121,7 @@ export function Portfolio() {
             <div><p className="text-sm font-semibold">{d.period_label}</p><p className="text-[11px] text-slate-500">{d.property_name} · record date {d.record_date} · {integer(d.my_entitlement!.eligible_quantity)} eligible ANSH</p></div>
             <div className="text-right"><p className="font-financial font-bold">{inr(d.my_entitlement!.amount)}</p><Status value={d.my_entitlement!.status}/></div></div>)}</dl>}
       </Card>
+      <WalletCard/>
       <Card title="External REIT holdings" description="Separate asset class · simulated data · not eligible as ANSH collateral">
         {!pf.data?.reits.length ? <EmptyState title="No REIT holdings" description="—"/> :
           <div className="data-table-wrap"><table className="data-table w-full"><thead><tr><th>REIT</th><th className="money">Units</th><th className="money">Cost</th><th className="money">Illustrative value</th><th>Source</th></tr></thead>

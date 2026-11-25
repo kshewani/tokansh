@@ -6,7 +6,7 @@ function fakeSession(initial={}){
  const data=new Map(Object.entries(initial));
  return {getItem(k){return data.has(k)?data.get(k):null;},setItem(k,v){data.set(k,String(v));},removeItem(k){data.delete(k);}};
 }
-const aarav={role:'INVESTOR',userId:'u-aarav',name:'Aarav'};
+const aarav={role:'INVESTOR',userId:'u-aarav',name:'Aarav',username:'aarav',token:'t-123'};
 test('only the three demo roles are accepted',()=>{
  for(const role of ['ISSUER','INVESTOR','LENDER'])assert.equal(isDemoRole(role),true);
  for(const value of ['ADMIN','DEMO','',null,undefined,42])assert.equal(isDemoRole(value),false);
@@ -30,4 +30,8 @@ test('storage failures do not throw or fabricate a session',()=>{
  assert.equal(readDemoSession(broken),null);
  assert.doesNotThrow(()=>writeDemoSession(aarav,broken));
  assert.doesNotThrow(()=>clearDemoSession(broken));
+});
+test('a stored session without its bearer token is rejected',()=>{
+ const store=fakeSession({[DEMO_SESSION_KEY]:JSON.stringify({role:'INVESTOR',userId:'u',name:'A',username:'aarav'})});
+ assert.equal(readDemoSession(store),null);
 });

@@ -21,11 +21,12 @@ from app.core.money import Amount, bps_to_percent, from_minor, ratio_bps, to_min
 from app.core.serial import envelope, iso, paginate
 from app.db import models as m
 from app.db.enums import (CreditDecision, EventSource, IssuanceStatus, LoanStatus, OperationType, PledgeStatus,
-                          RepaymentStatus, UserRole, ValuationPurpose)
+                          RepaymentStatus, UserRole, ValuationPurpose, WalletEntryKind)
 from app.db.types import utcnow
 from app.ledger import executor
 from app.ledger.port import LedgerPort
 from app.ledger.projections import apply_deltas, delta
+from app.modules import lenders, wallet
 from app.modules.common import get_or_404, identity, user_brief
 from app.modules.ledger_reads import check_available, ledger_position
 
@@ -42,10 +43,11 @@ class LoanIn(BaseModel):
     pledge_id: str = Field(min_length=1, max_length=36)
     principal: Amount
     lender_id: str | None = Field(default=None, max_length=36)
+    offer_id: str | None = Field(default=None, max_length=40)
     currency: Literal["INR"] = "INR"
-    # Simulated terms: fixed-term simple interest (illustrative 10% for 12 months by default).
-    interest_rate_bps: int = Field(default=1000, ge=0, le=3000)
-    term_months: int = Field(default=12, ge=1, le=36)
+    # Simulated terms from the lender's offer; omitted values default to the offer's.
+    interest_rate_bps: int | None = Field(default=None, ge=0, le=3000)
+    term_months: int | None = Field(default=None, ge=1, le=36)
 
 
 def interest_quote(principal_minor: int, rate_bps: int, term_months: int) -> int:
@@ -94,7 +96,8 @@ def loan_view(db: Session, loan: m.Loan) -> dict:
             "currency": loan.currency, "collateral_value": from_minor(loan.collateral_value_minor),
             "ltv_percent": bps_to_percent(loan.ltv_bps), "max_ltv_percent": bps_to_percent(loan.max_ltv_bps),
             "ltv_is_indicative": True, "interest_rate_percent": bps_to_percent(loan.interest_rate_bps),
-            "term_months": loan.term_months, "interest_quote": from_minor(loan.interest_quote_minor),
+            "term_months": loan.term_months, "offer_id": loan.offer_id,
+            "interest_quote": from_minor(loan.interest_quote_minor),
             "interest_outstanding": from_minor(loan.interest_outstanding_minor),
             "total_due": from_minor(loan.principal_minor + loan.interest_quote_minor),
             "total_outstanding": from_minor(loan.outstanding_minor + loan.interest_outstanding_minor),
@@ -292,24 +295,23 @@ def apply_loan(body: LoanIn, request: Request, db: Session = Depends(get_db), us
     if db.scalar(sa.select(m.Loan).filter_by(pledge_id=p.id)) is not None:
         raise invalid_state("This pledge already secures a loan.")
     principal = to_minor(body.principal, "principal")
-    if principal * 10000 > settings.max_ltv_bps * p.collateral_value_minor:  # exact integer comparison
+    lender, offer = lenders.resolve(db, body.lender_id, body.offer_id)
+    rate = offer.annual_rate_bps if body.interest_rate_bps is None else body.interest_rate_bps
+    term = (12 if 12 in offer.tenures_months else offer.tenures_months[0]) if body.term_months is None else body.term_months
+    if rate != offer.annual_rate_bps or term not in offer.tenures_months:
+        raise ApiError(422, "INVALID_OFFER", "Rate and tenure must match the selected lender offer.",
+                       {"offer": lenders.offer_view(offer, settings)})
+    max_ltv = lenders.effective_max_ltv(offer, settings)
+    if principal * 10000 > max_ltv * p.collateral_value_minor:  # exact integer comparison
         raise ApiError(409, "LTV_LIMIT_EXCEEDED", "The requested loan exceeds the maximum loan-to-value ratio.",
                        {"requested_ltv_percent": bps_to_percent(_ltv(principal, p.collateral_value_minor)),
-                        "max_ltv_percent": bps_to_percent(settings.max_ltv_bps),
-                        "max_principal": from_minor(settings.max_ltv_bps * p.collateral_value_minor // 10000)})
-    if body.lender_id:
-        lender = get_or_404(db, m.User, body.lender_id, "Lender")
-        if lender.role != UserRole.LENDER:
-            raise invalid_state("Selected user is not a lender.")
-    else:
-        lender = db.scalar(sa.select(m.User).filter_by(role=UserRole.LENDER).order_by(m.User.created_at).limit(1))
-        if lender is None:
-            raise invalid_state("No demonstration lender exists.")
+                        "max_ltv_percent": bps_to_percent(max_ltv),
+                        "max_principal": from_minor(max_ltv * p.collateral_value_minor // 10000)})
     loan = m.Loan(borrower_id=user.id, lender_id=lender.id, pledge_id=p.id, principal_minor=principal,
                   outstanding_minor=principal, currency=body.currency, collateral_value_minor=p.collateral_value_minor,
-                  ltv_bps=_ltv(principal, p.collateral_value_minor), max_ltv_bps=settings.max_ltv_bps,
-                  interest_rate_bps=body.interest_rate_bps, term_months=body.term_months)
-    loan.interest_quote_minor = interest_quote(principal, body.interest_rate_bps, body.term_months)
+                  ltv_bps=_ltv(principal, p.collateral_value_minor), max_ltv_bps=max_ltv,
+                  interest_rate_bps=rate, term_months=term, offer_id=offer.id)
+    loan.interest_quote_minor = interest_quote(principal, rate, term)
     loan.interest_outstanding_minor = loan.interest_quote_minor
     db.add(loan)
     db.flush()
@@ -402,6 +404,9 @@ def disburse_loan(loan_id: str, request: Request, db: Session = Depends(get_db),
         raise invalid_state("Only an approved loan can be disbursed.", status=loan.loan_status.value)
     _set_loan(db, loan, LoanStatus.DISBURSED, user.id, detail={"amount": from_minor(loan.principal_minor)})
     loan.disbursed_at = utcnow()
+    # Simulated: the principal lands in the borrower's demo wallet, once.
+    wallet.move(db, loan.borrower_id, WalletEntryKind.DISBURSEMENT, loan.principal_minor,
+                f"DISBURSEMENT:{loan.id}", loan_id=loan.id)
     _set_loan(db, loan, LoanStatus.ACTIVE, user.id)
     db.commit()
     return envelope(request, loan_view(db, loan))
@@ -421,6 +426,9 @@ def repay_loan(loan_id: str, body: RepaymentIn, request: Request, db: Session = 
         if amount > before:  # Rule 9.1
             raise ApiError(409, "REPAYMENT_EXCEEDS_OUTSTANDING", "Repayment cannot exceed the outstanding amount.",
                            {"outstanding": from_minor(before), "amount": body.amount})
+        rep_key = f"repay:{loan.id}:{key}"[:128]
+        # Simulated: debit the borrower's demo wallet (fails cleanly when the balance is short).
+        wallet.move(db, user.id, WalletEntryKind.REPAYMENT, amount, f"REPAYMENT:{rep_key}", loan_id=loan.id)
         to_interest = min(amount, loan.interest_outstanding_minor)  # interest first, then principal
         loan.interest_outstanding_minor -= to_interest
         loan.outstanding_minor -= amount - to_interest  # Rule 9.2
@@ -429,7 +437,7 @@ def repay_loan(loan_id: str, body: RepaymentIn, request: Request, db: Session = 
         rep = m.LoanRepayment(loan_id=loan.id, amount_minor=amount, currency=body.currency,
                               outstanding_before_minor=before, outstanding_after_minor=after,
                               repayment_reference=f"SIM-REPAY-{uuid.uuid4().hex[:12].upper()}",
-                              idempotency_key=f"repay:{loan.id}:{key}"[:128], repayment_status=RepaymentStatus.SUCCESS)
+                              idempotency_key=rep_key, repayment_status=RepaymentStatus.SUCCESS)
         db.add(rep)
         _set_loan(db, loan, LoanStatus.REPAID if after == 0 else LoanStatus.PARTIALLY_REPAID,
                   user.id, correlation_id=correlation_id(request),

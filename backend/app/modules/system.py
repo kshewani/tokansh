@@ -76,11 +76,13 @@ def configuration(request: Request, settings: Settings = Depends(get_settings), 
                               "drunix_chaincode": settings.drunix_chaincode,
                               "drunix_gateway_configured": bool(settings.drunix_gateway_url),
                               "max_ltv_percent": bps_to_percent(settings.max_ltv_bps), "currency": "INR",
+                              "demo_auth_enabled": settings.demo_auth_enabled and settings.app_env.lower() != "production",
                               "ledger_simulator_available": False})
 
 
 def user_view(u: m.User) -> dict:
-    return {"id": u.id, "name": u.full_name, "email": u.email, "role": u.role.value, "status": u.status.value}
+    return {"id": u.id, "name": u.full_name, "username": u.ledger_identity_ref, "email": u.email,
+            "role": u.role.value, "status": u.status.value}
 
 
 @router.get("/api/v1/users")
@@ -100,18 +102,7 @@ def roles(request: Request):
     return envelope(request, {"items": [{"role": r.value, "description": d} for r, d in ROLE_INFO.items()]})
 
 
-class ActiveRoleIn(BaseModel):
-    role: UserRole
 
-
-@router.post("/api/v1/demo/active-role")
-def active_role(body: ActiveRoleIn, request: Request, db: Session = Depends(get_db)):
-    """Return the demonstration user for a role; the client sends its id as X-Demo-User-Id."""
-    u = db.scalar(sa.select(m.User).filter_by(role=body.role, status=UserStatus.ACTIVE).order_by(m.User.created_at).limit(1))
-    if u is None:
-        raise ApiError(404, "RESOURCE_NOT_FOUND", f"No demonstration user has the role {body.role.value}.")
-    return envelope(request, {"user": user_view(u), "header": "X-Demo-User-Id",
-                              "notice": "Demonstration identity only; not production authentication."})
 
 
 @router.get("/api/v1/dashboard/summary")

@@ -4,7 +4,7 @@
 > `backend/sql/dml_playbook.sql`. Do not edit by hand; a test fails when this file is stale.
 > Design rationale and open decisions are in [`DATABASE.md`](DATABASE.md).
 
-26 tables. Part 1 is the schema (DDL), Part 2 the enumerations, Part 3 the DML playbook.
+28 tables. Part 1 is the schema (DDL), Part 2 the enumerations, Part 3 the DML playbook.
 
 ## Part 1 — Tables
 
@@ -491,6 +491,7 @@ Simulated financing backed by a pledge (DOMAIN_MODEL 2.12). Principal-only in th
 | `term_months` | integer | no | `12` |  |
 | `interest_quote_minor` | bigint | no | `0` | paise |
 | `interest_outstanding_minor` | bigint | no | `0` | paise |
+| `offer_id` | varchar(40) | yes |  |  |
 | `currency` | varchar(3) | no | `INR` |  |
 | `collateral_value_minor` | bigint | no |  | paise |
 | `ltv_bps` | integer | no |  | basis points |
@@ -571,6 +572,60 @@ Rules enforced by the database:
 - `ck_loan_repayments_outstanding_after_non_negative`: `outstanding_after_minor IS NULL OR outstanding_after_minor >= 0`
 
 Indexes: `ix_loan_repayments_loan_id` (loan_id).
+
+### Demo cash wallet (simulated)
+
+#### `demo_cash_accounts`
+
+Simulated INR cash for one demo user. No bank, no real money (ADR-010).
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | varchar(36) | no |  | primary key |
+| `user_id` | varchar(36) | no |  | → `users.id` |
+| `balance_minor` | bigint | no | `0` | paise |
+| `currency` | varchar(3) | no | `INR` |  |
+| `simulation_flag` | boolean | no | `true` |  |
+| `created_at` | timestamp (UTC) | no | now |  |
+| `updated_at` | timestamp (UTC) | no | now |  |
+
+Unique: (`user_id`).
+
+Rules enforced by the database:
+
+- `ck_demo_cash_accounts_balance_non_negative`: `balance_minor >= 0`
+- `ck_demo_cash_accounts_cash_is_simulated`: `simulation_flag = 1`
+- `ck_demo_cash_accounts_currency_iso`: `length(currency) = 3 AND currency = upper(currency)`
+
+#### `demo_cash_entries`
+
+One simulated cash movement. ``reference_key`` is unique, so a disbursement,
+repayment or top-up can never be applied twice.
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | varchar(36) | no |  | primary key |
+| `account_id` | varchar(36) | no |  | → `demo_cash_accounts.id` |
+| `kind` | enum `WalletEntryKind` | no |  |  |
+| `amount_minor` | bigint | no |  | paise |
+| `balance_after_minor` | bigint | no |  | paise |
+| `currency` | varchar(3) | no | `INR` |  |
+| `loan_id` | varchar(36) | yes |  | → `loans.id` |
+| `reference_key` | varchar(200) | no |  |  |
+| `simulation_flag` | boolean | no | `true` |  |
+| `created_at` | timestamp (UTC) | no | now |  |
+
+Unique: (`reference_key`).
+
+Rules enforced by the database:
+
+- `ck_demo_cash_entries_amount_positive`: `amount_minor > 0`
+- `ck_demo_cash_entries_balance_after_non_negative`: `balance_after_minor >= 0`
+- `ck_demo_cash_entries_currency_iso`: `length(currency) = 3 AND currency = upper(currency)`
+- `ck_demo_cash_entries_entry_is_simulated`: `simulation_flag = 1`
+- `ck_demo_cash_entries_loan_entries_need_loan`: `kind NOT IN ('DISBURSEMENT','REPAYMENT') OR loan_id IS NOT NULL`
+
+Indexes: `ix_demo_cash_entries_account_time` (account_id, created_at); `ix_demo_cash_entries_loan_id` (loan_id).
 
 ### Distributions
 
@@ -812,6 +867,7 @@ specification documents and need team approval.
 | `UserStatus` | `ACTIVE`, `INACTIVE` | proposed |
 | `ValuationPurpose` | `ILLUSTRATIVE_MARKET`, `COLLATERAL` | proposed |
 | `VerificationStatus` | `PENDING`, `VERIFIED`, `REJECTED` | proposed |
+| `WalletEntryKind` | `DEMO_FUNDS`, `WITHDRAWAL`, `DISBURSEMENT`, `REPAYMENT` | from the specification |
 
 ## Part 3 — DML playbook
 

@@ -13,8 +13,6 @@ import (
 	"regexp"
 )
 
-const Signer = "Org1MSP:54690b215edf0e4065332b7b3bd6387dad86f6a36de54b2c49b945309abac59c"
-
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var money = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
@@ -125,8 +123,9 @@ type Ledger interface {
 	Status(context.Context, Artifact) (Status, error)
 }
 type Service struct {
-	Ledger Ledger
-	Key    []byte
+	Ledger  Ledger
+	Key     []byte
+	Signer  string
 }
 
 func (s *Service) mac(a Artifact) string {
@@ -137,7 +136,7 @@ func (s *Service) mac(a Artifact) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 func (s *Service) Check(a Artifact) error {
-	if len(s.Key) < 32 || a.Version != 1 || a.Channel != "mychannel" || a.Chaincode != "tokansh" || a.Signer != Signer || validate(a.Command) != nil || a.RequestDigest != commandDigest(a.Command) || a.TransactionID == "" || len(a.Transaction) == 0 || len(a.Creator) == 0 || !hmac.Equal([]byte(a.MAC), []byte(s.mac(a))) {
+	if len(s.Key) < 32 || a.Version != 1 || a.Channel != "mychannel" || a.Chaincode != "tokansh" || (s.Signer != "" && a.Signer != s.Signer) || validate(a.Command) != nil || a.RequestDigest != commandDigest(a.Command) || a.TransactionID == "" || len(a.Transaction) == 0 || len(a.Creator) == 0 || !hmac.Equal([]byte(a.MAC), []byte(s.mac(a))) {
 		return invalid
 	}
 	return validatePrepared(a)
@@ -150,7 +149,7 @@ func (s *Service) Prepare(ctx context.Context, c Command) (Artifact, error) {
 	if e != nil {
 		return Artifact{}, e
 	}
-	a := Artifact{1, "mychannel", "tokansh", Signer, c, commandDigest(c), id, tx, creator, ""}
+	a := Artifact{1, "mychannel", "tokansh", s.Signer, c, commandDigest(c), id, tx, creator, ""}
 	a.MAC = s.mac(a)
 	if e = s.Check(a); e != nil {
 		return Artifact{}, e

@@ -14,9 +14,9 @@ def count(db, model):
 def test_seed_is_idempotent(db):
     first = seed(db, with_property=True)
     second = seed(db, with_property=True)
-    assert first == {"users": 4, "reit_holdings": 2, "properties": 1}
+    assert first == {"users": 6, "reit_holdings": 2, "properties": 1}
     assert second == {"users": 0, "reit_holdings": 0, "properties": 0}
-    assert count(db, m.User) == 4 and count(db, m.PropertyDocument) == 3 and count(db, m.PropertyValuation) == 2
+    assert count(db, m.User) == 6 and count(db, m.PropertyDocument) == 3 and count(db, m.PropertyValuation) == 2
 
 
 def test_seed_never_fabricates_ledger_backed_state(db):

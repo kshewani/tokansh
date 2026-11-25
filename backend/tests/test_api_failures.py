@@ -104,7 +104,7 @@ def test_idempotency(people, ledger):
     aarav.post(f"{P}/payments/simulate", pay, idem="pay-1")
     assert len(transfers_sent(ledger)) == 1
     assert len(data(aarav.get(f"{P}/marketplace/orders/{first['id']}"))["payments"]) == 1
-    r = aarav.client.post(f"{P}/marketplace/orders", json=body, headers={"X-Demo-User-Id": AARAV})
+    r = aarav.client.post(f"{P}/marketplace/orders", json=body, headers=aarav.auth)
     assert r.status_code == 400  # Idempotency-Key is mandatory for financial operations
 
 
@@ -247,3 +247,67 @@ def test_interest_quote_rounds_half_up_and_is_paid_first():
     assert interest_quote(120000000, 1000, 12) == 12000000           # Rs 12,00,000 at 10% for a year = Rs 1,20,000
     assert interest_quote(100, 1, 1) == 0 and interest_quote(600000, 1, 1) == 5  # 0.5 paisa rounds up
     assert interest_quote(100000, 0, 36) == 0
+
+
+
+def test_demo_login_sessions(api, people):
+    r = api.post("/api/v1/auth/login", json={"username": "Nobody", "password": "x"})
+    assert r.status_code == 401 and r.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert api.post("/api/v1/auth/login", json={"username": "aarav", "password": ""}).status_code == 422
+    aarav = people["aarav"]
+    assert data(aarav.get("/api/v1/auth/me"))["user"]["role"] == "INVESTOR"
+    forged = api.get(f"{P}/properties", headers={"Authorization": "Bearer not-a-session"})
+    assert forged.status_code == 401 and forged.json()["error"]["code"] == "INVALID_SESSION"
+    assert api.get(f"{P}/properties", headers={"X-Demo-User-Id": AARAV}).status_code == 401  # old header ignored
+    api.post("/api/v1/auth/logout", headers=aarav.auth)
+    assert aarav.get("/api/v1/auth/me").status_code == 401
+
+
+def test_demo_login_is_refused_in_production(tmp_path, ledger):
+    from fastapi.testclient import TestClient
+    from app.core.config import Settings
+    from app.main import create_app
+    app = create_app(Settings(database_url=f"sqlite:///{tmp_path / 'p.db'}", app_env="production"), ledger=ledger)
+    with TestClient(app) as c:
+        r = c.post("/api/v1/auth/login", json={"username": "aarav", "password": "x"})
+        assert r.status_code == 503 and r.json()["error"]["code"] == "AUTH_NOT_CONFIGURED"
+
+
+
+def test_lender_catalogue_and_offer_rules(people, ledger):
+    _, iss, listing = setup_issued(people)
+    buy(people, listing, qty=100)
+    aarav = people["aarav"]
+    lenders = data(aarav.get(f"{P}/financing/lenders"))["items"]
+    by_name = {l["username"]: l for l in lenders}
+    assert set(by_name) == {"axim-bank", "real-finance", "horizon-credit"}
+    horizon = by_name["horizon-credit"]["offers"][0]
+    assert horizon["max_ltv_percent"] == "70.00" and horizon["effective_max_ltv_percent"] == "60.00"  # platform cap
+    pledge = data(aarav.post(f"{P}/collateral/pledges", {"issuance_id": iss["id"], "quantity": 100}), 201)
+    base = {"pledge_id": pledge["id"], "principal": "500000.00", "lender_id": by_name["real-finance"]["id"]}
+    r = aarav.post(f"{P}/loans/applications", {**base, "interest_rate_bps": 1000})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "INVALID_OFFER"  # Real Finance quotes 9%
+    r = aarav.post(f"{P}/loans/applications", {**base, "principal": "550000.01"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "LTV_LIMIT_EXCEEDED"  # 55% offer limit
+    loan = data(aarav.post(f"{P}/loans/applications", {**base, "term_months": 24}), 201)
+    assert loan["interest_rate_percent"] == "9.00" and loan["term_months"] == 24 and loan["offer_id"] == "real-flex"
+    assert loan["lender"]["name"] == "Real Finance"
+    # Axim Bank cannot act on a Real Finance loan; Real Finance can.
+    assert people["lender"].post(f"{P}/loans/{loan['id']}/assess", {}).status_code == 403
+    from tests.conftest import Actor
+    real = Actor(aarav.client, "real-finance")
+    assert data(real.post(f"{P}/loans/{loan['id']}/assess", {}), 200)["status"] == "UNDER_REVIEW"
+
+
+def test_demo_wallet_moves_cash_once(people):
+    aarav = people["aarav"]
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "0.00"
+    w = data(aarav.post(f"{P}/wallet/fund", {"amount": "5000.00"}, idem="top-up-1"), 200)
+    again = aarav.post(f"{P}/wallet/fund", {"amount": "5000.00"}, idem="top-up-1")
+    assert w["balance"] == "5000.00" and again.json()["data"]["balance"] == "5000.00"  # replay, not a second credit
+    r = aarav.post(f"{P}/wallet/withdraw", {"amount": "5000.01"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "INSUFFICIENT_DEMO_CASH"
+    w = data(aarav.post(f"{P}/wallet/withdraw", {"amount": "2000.00"}), 200)
+    assert w["balance"] == "3000.00" and [e["kind"] for e in w["entries"]] == ["WITHDRAWAL", "DEMO_FUNDS"]
+    assert all(e["simulated"] for e in w["entries"])
+    assert people["lender"].get(f"{P}/wallet").status_code == 403

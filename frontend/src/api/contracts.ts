@@ -57,7 +57,7 @@ export type Loan = {
   id: string; borrower: UserBrief; lender: UserBrief; pledge_id: string; principal: string; outstanding: string; currency: string;
   collateral_value: string; ltv_percent: string; max_ltv_percent: string; status: string; simulated: boolean; disbursed_at: string | null;
   interest_rate_percent: string; term_months: number; interest_quote: string; interest_outstanding: string;
-  total_due: string; total_outstanding: string; interest_method: string;
+  total_due: string; total_outstanding: string; interest_method: string; offer_id: string | null;
   assessments: {id: string; decision: string; assessed_ltv_percent: string; assessed_at: string}[];
   repayments: {id: string; amount: string; reference: string; outstanding_after: string; created_at: string}[];
 };
@@ -74,7 +74,12 @@ export type AuditEvent = {id: string; entity_type: string; entity_id: string; op
   ledger_transaction_id: string | null; operation_id: string | null; occurred_at: string};
 export type AssetEvent = {id: string; property_id: string | null; event_type: string; description: string; source: string;
   simulated: boolean; ledger_transaction_id: string | null; actor: UserBrief | null; occurred_at: string};
-export type DemoUser = {id: string; name: string; email: string; role: string};
+export type DemoUser = {id: string; name: string; username: string; email: string; role: string};
+export type LenderOffer = {id: string; name: string; annual_rate_percent: string; annual_rate_bps: number; max_ltv_percent: string;
+  effective_max_ltv_percent: string; tenures_months: number[]};
+export type LenderInstitution = {id: string; username: string; name: string; simulated: boolean; offers: LenderOffer[]};
+export type WalletEntry = {id: string; kind: string; amount: string; balance_after: string; loan_id: string | null; created_at: string; simulated: boolean};
+export type Wallet = {balance: string; currency: string; simulated: boolean; entries: WalletEntry[]};
 export type Dashboard = {
   properties: {total: number; approved: number; pending_review: number; illustrative_approved_valuation: string};
   ansh: {approved_supply: number; issued: number; pledged: number};
@@ -83,10 +88,11 @@ export type Dashboard = {
 
 export const route = {
   status: '/api/v1/system/status', configuration: '/api/v1/system/configuration', dashboard: '/api/v1/dashboard/summary',
-  users: '/api/v1/users', demoRole: '/api/v1/demo/active-role', properties: '/api/v1/properties',
+  users: '/api/v1/users', login: '/api/v1/auth/login', logout: '/api/v1/auth/logout', properties: '/api/v1/properties',
   issuances: '/api/v1/ansh/issuances', transfers: '/api/v1/ansh/transfers', listings: '/api/v1/marketplace/listings',
   orders: '/api/v1/marketplace/orders', payments: '/api/v1/payments/simulate', portfolios: '/api/v1/portfolios',
   pledges: '/api/v1/collateral/pledges', loans: '/api/v1/loans', loanApplications: '/api/v1/loans/applications',
   distributions: '/api/v1/distributions', audit: '/api/v1/audit/events', assetEvents: '/api/v1/assets/events',
   ledgerOps: '/api/v1/ledger/operations', reconciliation: '/api/v1/reconciliation/cases',
+  lenders: '/api/v1/financing/lenders', wallet: '/api/v1/wallet',
 } as const;

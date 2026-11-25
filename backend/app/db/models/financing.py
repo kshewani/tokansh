@@ -71,6 +71,7 @@ class Loan(Base):
     term_months = integer(default=12)
     interest_quote_minor = money(default=0)
     interest_outstanding_minor = money(default=0)
+    offer_id = text(40, nullable=True)  # lender catalogue offer (app/modules/lenders.py)
     currency = currency_col()
     collateral_value_minor = money()
     ltv_bps = bps()       # Outstanding / Collateral, in basis points (Rule 8.4)

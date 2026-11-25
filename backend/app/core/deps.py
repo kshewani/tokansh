@@ -10,7 +10,6 @@ from app.db import models as m
 from app.db.enums import UserRole, UserStatus
 from app.ledger.port import LedgerPort
 
-DEMO_USER_HEADER = "X-Demo-User-Id"
 
 
 def get_db(request: Request) -> Iterator[Session]:
@@ -30,17 +29,17 @@ def get_ledger(request: Request) -> LedgerPort:
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> m.User:
-    """Demonstration identity (API_CONTRACTS section 6). Not production authentication.
+    """Caller from the demo bearer session (app/core/auth.py). Not production authentication.
 
-    The demo user is selected by the X-Demo-User-Id header. Role permissions are
-    still enforced on every operation by the services.
+    Role permissions are still enforced on every operation by the services.
     """
-    user_id = request.headers.get(DEMO_USER_HEADER)
-    if not user_id:
-        raise ApiError(401, "AUTHENTICATION_REQUIRED", f"Select a demonstration user ({DEMO_USER_HEADER} header).")
+    from app.core.auth import bearer_token
+    user_id = request.app.state.sessions.resolve(bearer_token(request))
+    if user_id is None:
+        raise ApiError(401, "INVALID_SESSION", "Your session has ended. Sign in again.")
     user = db.get(m.User, user_id)
     if user is None or user.status != UserStatus.ACTIVE:
-        raise ApiError(401, "AUTHENTICATION_REQUIRED", "Unknown or inactive demonstration user.")
+        raise ApiError(401, "INVALID_SESSION", "Unknown or inactive demonstration user.")
     return user
 
 

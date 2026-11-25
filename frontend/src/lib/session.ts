@@ -1,6 +1,6 @@
 /** Demo-only browser session. This is not authentication; the backend still enforces roles. */
 export type Role = 'ISSUER' | 'INVESTOR' | 'LENDER';
-export type DemoSession = {role: Role; userId: string; name: string};
+export type DemoSession = {role: Role; userId: string; name: string; username: string; token: string};
 export const DEMO_SESSION_KEY = 'tokansh-demo-session-v2';
 export type SessionStorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -16,7 +16,8 @@ export function readDemoSession(store?: SessionStorageLike | null): DemoSession 
     if (!raw) return null;
     const value = JSON.parse(raw);
     return isDemoRole(value?.role) && typeof value.userId === 'string' && value.userId && typeof value.name === 'string'
-      ? {role: value.role, userId: value.userId, name: value.name} : null;
+      && typeof value.token === 'string' && value.token && typeof value.username === 'string'
+      ? {role: value.role, userId: value.userId, name: value.name, username: value.username, token: value.token} : null;
   } catch {
     return null;
   }
@@ -27,8 +28,12 @@ export function writeDemoSession(session: DemoSession, store?: SessionStorageLik
 export function clearDemoSession(store?: SessionStorageLike | null): void {
   try { storage(store)?.removeItem(DEMO_SESSION_KEY); } catch { /* cleared from React state anyway */ }
 }
-export const roleOptions: {role: Role; label: string; description: string}[] = [
-  {role: 'ISSUER', label: 'Admin / Issuer (Meera)', description: 'Property registry, approval, issuance, listings and distributions'},
-  {role: 'INVESTOR', label: 'Investor (Aarav)', description: 'Marketplace, portfolio, purchases, pledge, simulated loan and income'},
-  {role: 'LENDER', label: 'Lender', description: 'Simulated credit assessment, approval, disbursement and collateral review'},
+export const roleOptions: {role: Role; label: string; description: string; usernames: {value: string; label: string}[]}[] = [
+  {role: 'ISSUER', label: 'Admin / Issuer (Meera)', description: 'Property registry, approval, issuance, listings and distributions',
+    usernames: [{value: 'meera', label: 'Meera'}]},
+  {role: 'INVESTOR', label: 'Investor (Aarav)', description: 'Marketplace, portfolio, purchases, pledge, simulated loan, wallet and income',
+    usernames: [{value: 'aarav', label: 'Aarav'}]},
+  {role: 'LENDER', label: 'Lender', description: 'Simulated credit assessment, approval and disbursement for one institution',
+    usernames: [{value: 'axim-bank', label: 'Axim Bank'}, {value: 'real-finance', label: 'Real Finance'},
+      {value: 'horizon-credit', label: 'Horizon Credit'}]},
 ];

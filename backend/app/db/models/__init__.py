@@ -10,6 +10,7 @@ from app.db.models.distributions import (Distribution, DistributionEntitlement, 
                                          OwnershipSnapshotLine)
 from app.db.models.reit import ReitHolding
 from app.db.models.events import AssetEvent, AuditEvent
+from app.db.models.wallet import DemoCashAccount, DemoCashEntry
 
 __all__ = [
     "User", "Property", "PropertyDocument", "PropertyReview", "PropertyValuation",
@@ -17,5 +18,5 @@ __all__ = [
     "AnshIssuance", "OwnershipPosition", "MarketplaceListing", "PurchaseOrder", "PaymentRecord",
     "CollateralPledge", "Loan", "CreditAssessment", "LoanRepayment",
     "OwnershipSnapshot", "OwnershipSnapshotLine", "Distribution", "DistributionEntitlement",
-    "ReitHolding", "AssetEvent", "AuditEvent",
+    "ReitHolding", "AssetEvent", "AuditEvent", "DemoCashAccount", "DemoCashEntry",
 ]

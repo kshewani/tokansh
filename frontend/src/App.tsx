@@ -26,6 +26,8 @@ function Guard({roles,children}:{roles:Role[];children:ReactNode}){
 function Login(){
  const {session,role,login,backendReady}=useApp();
  const [selectedRole,setSelectedRole]=useState<Role>(role);
+ const [username,setUsername]=useState(roleOptions.find(o=>o.role===role)?.usernames[0].value??'meera');
+ const [password,setPassword]=useState('');
  const [error,setError]=useState<string|null>(null);
  const [busy,setBusy]=useState(false);
  const navigate=useNavigate();
@@ -34,7 +36,7 @@ function Login(){
  async function enter(event:React.FormEvent<HTMLFormElement>){
   event.preventDefault();
   setBusy(true);setError(null);
-  try{await login(selectedRole);navigate('/overview',{replace:true});}
+  try{await login(username,password);navigate('/overview',{replace:true});}
   catch(e){setError(e instanceof Error?e.message:'Sign-in failed.');}
   finally{setBusy(false);}
  }
@@ -57,20 +59,25 @@ function Login(){
      <form onSubmit={enter}>
       <fieldset className="space-y-3"><legend className="mb-3 text-sm font-bold text-[#102B4E]">Choose an account</legend>
        {roleOptions.map(item=><label key={item.role} className={'flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors '+(selectedRole===item.role?'border-[#1769AA] bg-blue-50':'border-slate-200 bg-white hover:border-blue-300')}>
-        <input className="mt-1 accent-[#1769AA]" type="radio" name="demo-role" value={item.role} checked={selectedRole===item.role} onChange={()=>setSelectedRole(item.role)}/>
+        <input className="mt-1 accent-[#1769AA]" type="radio" name="demo-role" value={item.role} checked={selectedRole===item.role} onChange={()=>{setSelectedRole(item.role);setUsername(item.usernames[0].value);}}/>
         <span><strong className="text-sm text-[#102B4E]">{item.label}</strong><span className="mt-1 block text-xs leading-5 text-slate-500">{item.description}</span></span>
        </label>)}
       </fieldset>
-      <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-       <strong className="text-[#102B4E]">Selected role: </strong>{selected?.label}
+      <div className="mt-5 grid gap-3">
+       {selected&&selected.usernames.length>1&&<label className="grid gap-1.5 text-xs font-semibold text-[#102B4E]" htmlFor="login-institution">Institution
+        <select id="login-institution" className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-700" value={username} onChange={e=>setUsername(e.target.value)}>
+         {selected.usernames.map(u=><option key={u.value} value={u.value}>{u.label}</option>)}</select></label>}
+       <label className="grid gap-1.5 text-xs font-semibold text-[#102B4E]" htmlFor="login-password">Password
+        <input id="login-password" type="password" autoComplete="current-password" required className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-700" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Any password for this demo"/></label>
+       <p className="text-xs text-slate-500">Signing in as <strong className="text-[#102B4E]">{selected?.usernames.find(u=>u.value===username)?.label??username}</strong>. Demo sign-in: any non-empty password is accepted.</p>
       </div>
-      <Button type="submit" className="mt-5 w-full" disabled={busy}>{busy?'Signing in…':'Enter demo workspace'} <ArrowRight size={17}/></Button>
+      <Button type="submit" className="mt-5 w-full" disabled={busy||!password}>{busy?'Signing in…':'Enter demo workspace'} <ArrowRight size={17}/></Button>
       {error&&<InlineError message={error}/>}
       {!backendReady&&!error&&<p className="mt-3 text-xs text-amber-800">Connecting to the TokANSH API… a sleeping free server can take up to a minute to wake up.</p>}
      </form>
     </Card>
     <div className="mt-5"><TrustNotice compact/></div>
-    <p className="mt-4 text-center text-xs leading-5 text-slate-500">Demonstration sign-in, not password authentication. The backend enforces each role's permissions.</p>
+    <p className="mt-4 text-center text-xs leading-5 text-slate-500">Demonstration sign-in, not real authentication: the API issues a session token and enforces each role's permissions. Sessions end when the API restarts.</p>
    </div>
   </section>
  </main>;

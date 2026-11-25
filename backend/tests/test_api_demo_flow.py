@@ -82,6 +82,7 @@ def test_full_demo_scenario(people, ledger):
     data(lender.post(f"{P}/loans/{loan['id']}/assess", {}), 200)
     data(lender.post(f"{P}/loans/{loan['id']}/approve", {}), 200)
     assert data(lender.post(f"{P}/loans/{loan['id']}/disburse"), 200)["status"] == "ACTIVE"
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "1200000.00"  # simulated disbursement credit
 
     # 8. Transferring 350 ANSH (includes pledged units) is rejected; nothing reaches the ledger.
     calls = len(ledger.submitted)
@@ -110,7 +111,11 @@ def test_full_demo_scenario(people, ledger):
     assert data(aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "200000.00"}), 200)["status"] == "PARTIALLY_REPAID"
     r = aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "1120000.01"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "REPAYMENT_EXCEEDS_OUTSTANDING"
+    r = aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "1120000.00"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "INSUFFICIENT_DEMO_CASH"  # 10,00,000 left
+    data(aarav.post(f"{P}/wallet/fund", {"amount": "120000.00"}), 200)
     repaid = data(aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "1120000.00"}), 200)
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "0.00"
     assert repaid["status"] == "REPAID" and repaid["outstanding"] == "0.00" and repaid["total_outstanding"] == "0.00"
     released = data(aarav.post(f"{P}/collateral/pledges/{pledge['id']}/release"), 200)
     assert released["status"] == "RELEASED" and released["release_operation"]["status"] == "COMMITTED"

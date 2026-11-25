@@ -34,10 +34,14 @@ func Handler(s *Service, operator []byte) http.Handler {
 			fail(403, "FORBIDDEN")
 			return
 		}
-		token := Secret(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || len(token) != 32 || subtle.ConstantTimeCompare(token, s.Key) != 1 {
-			fail(401, "UNAUTHORIZED")
-			return
+		path := strings.TrimPrefix(r.URL.Path, "/v1/tokansh/")
+		// TokANSH contract metadata is non-secret and is used for connectivity checks.
+		if !(r.Method == "GET" && path == "contract-info") {
+			token := Secret(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || len(token) != 32 || subtle.ConstantTimeCompare(token, s.Key) != 1 {
+				fail(401, "UNAUTHORIZED")
+				return
+			}
 		}
 		if r.Method == "POST" {
 			op := Secret(r.Header.Get("X-Operator-Capability"))
@@ -50,7 +54,6 @@ func Handler(s *Service, operator []byte) http.Handler {
 		defer cancel()
 		var data any
 		var err error
-		path := strings.TrimPrefix(r.URL.Path, "/v1/tokansh/")
 		if r.Method == "GET" {
 			switch {
 			case strings.HasPrefix(path, "issuance-state/"):

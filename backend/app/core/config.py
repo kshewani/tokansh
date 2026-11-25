@@ -35,6 +35,8 @@ class Settings:
     drunix_timeout_seconds: float = 7.0
     commit_poll_attempts: int = 3
     commit_poll_interval_seconds: float = 1.0
+    # Demo login (any non-empty password). Always refused when app_env is "production".
+    demo_auth_enabled: bool = True
     # Demonstration LTV threshold in basis points (Rule 8.5: configurable, not in the UI).
     max_ltv_bps: int = 6000
 
@@ -57,4 +59,5 @@ class Settings:
             commit_poll_attempts=_int("DRUNIX_COMMIT_POLL_ATTEMPTS", 3),
             commit_poll_interval_seconds=_float("DRUNIX_COMMIT_POLL_INTERVAL_SECONDS", 1.0),
             max_ltv_bps=_int("MAX_LTV_BPS", 6000),
+            demo_auth_enabled=os.environ.get("DEMO_AUTH_ENABLED", "true").strip().lower() in ("1", "true", "yes"),
         )

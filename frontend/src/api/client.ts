@@ -4,8 +4,11 @@
  */
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-let demoUserId: string | null = null;
-export function setDemoUser(id: string | null) { demoUserId = id; }
+let sessionToken: string | null = null;
+let onSessionEnded: (() => void) | null = null;
+/** Demo bearer session issued by POST /api/v1/auth/login. Never a backend or gateway secret. */
+export function setSessionToken(token: string | null) { sessionToken = token; }
+export function setSessionEndedHandler(fn: (() => void) | null) { onSessionEnded = fn; }
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public details: Record<string, unknown> = {}) {
@@ -22,7 +25,7 @@ export function newIdempotencyKey(): string {
 export async function api<T>(path: string, opts: {method?: 'GET' | 'POST' | 'PUT'; body?: unknown; idempotencyKey?: string; signal?: AbortSignal} = {}): Promise<ApiResponse<T>> {
   const headers: Record<string, string> = {Accept: 'application/json'};
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (demoUserId) headers['X-Demo-User-Id'] = demoUserId;
+  if (sessionToken) headers['Authorization'] = 'Bearer ' + sessionToken;
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
   let res: Response;
   try {
@@ -34,6 +37,9 @@ export async function api<T>(path: string, opts: {method?: 'GET' | 'POST' | 'PUT
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = json?.error || {};
+    if (res.status === 401 && sessionToken && (err.code === 'INVALID_SESSION' || err.code === 'AUTHENTICATION_REQUIRED')) {
+      onSessionEnded?.();  // the API restarted or the session was revoked: sign in again
+    }
     throw new ApiError(res.status, err.code || 'HTTP_' + res.status, err.message || 'Request failed.', err.details || {});
   }
   return {status: res.status, data: (json?.data ?? json) as T, replay: !!json?.meta?.idempotent_replay};

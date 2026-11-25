@@ -1,9 +1,9 @@
 import {createContext, useContext, useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import {api, ApiError, newIdempotencyKey, setDemoUser} from '../api/client';
+import {api, ApiError, newIdempotencyKey, setSessionEndedHandler, setSessionToken} from '../api/client';
 import {route} from '../api/contracts';
-import type {DemoUser, LedgerOperation, SystemStatus} from '../api/contracts';
+import type {LedgerOperation, SystemStatus} from '../api/contracts';
 import type {DemoSession, Role} from '../lib/session';
 import {clearDemoSession, readDemoSession, writeDemoSession} from '../lib/session';
 import {shortRef} from '../lib/format';
@@ -12,7 +12,7 @@ import {createSubmitGuard, failureMessage} from '../lib/guard';
 export type Message = {kind: 'error' | 'info' | 'success' | 'pending'; text: string} | null;
 type Action = {path: string; body?: unknown; label: string; method?: 'POST' | 'PUT'};
 type Context = {
-  session: DemoSession | null; role: Role; login: (role: Role) => Promise<void>; logout: () => void;
+  session: DemoSession | null; role: Role; login: (username: string, password: string) => Promise<void>; logout: () => void;
   message: Message; notify: (m: Message) => void;
   systemStatus: SystemStatus | null; backendReady: boolean; ledgerStatus: string;
   run: <T = unknown>(action: Action) => Promise<T | null>; submitting: boolean;
@@ -44,8 +44,15 @@ export function AppProvider({children}: {children: ReactNode}) {
   const [session, setSession] = useState<DemoSession | null>(() => readDemoSession());
   const [message, notify] = useState<Message>(null);
   const queryClient = useQueryClient();
-  setDemoUser(session?.userId ?? null);
-  useEffect(() => { setDemoUser(session?.userId ?? null); }, [session]);
+  setSessionToken(session?.token ?? null);
+  useEffect(() => { setSessionToken(session?.token ?? null); }, [session]);
+  useEffect(() => {
+    setSessionEndedHandler(() => {
+      clearDemoSession(); setSessionToken(null); setSession(null);
+      notify({kind: 'info', text: 'Your session ended (the API may have restarted). Sign in again.'});
+    });
+    return () => setSessionEndedHandler(null);
+  }, []);
 
   const health = useQuery({queryKey: ['system-status'], queryFn: () => api<SystemStatus>(route.status).then(r => r.data),
     refetchInterval: 20000, retry: 3, retryDelay: 5000});  // free hosts can take ~1 min to wake up
@@ -77,18 +84,22 @@ export function AppProvider({children}: {children: ReactNode}) {
     }
   }
 
-  async function login(role: Role) {
-    const res = await api<{user: DemoUser}>(route.demoRole, {method: 'POST', body: {role}});
-    const s = {role, userId: res.data.user.id, name: res.data.user.name};
+  async function login(username: string, password: string) {
+    const res = await api<{access_token: string; user: {id: string; name: string; username: string; role: string}}>(
+      route.login, {method: 'POST', body: {username, password}});
+    const u = res.data.user;
+    const role: Role = u.role === 'INVESTOR' ? 'INVESTOR' : u.role === 'LENDER' ? 'LENDER' : 'ISSUER';
+    const s = {role, userId: u.id, name: u.name, username: u.username, token: res.data.access_token};
     writeDemoSession(s);
-    setDemoUser(s.userId);
+    setSessionToken(s.token);
     setSession(s);
     notify(null);
     queryClient.clear();
   }
   function logout() {
+    void api(route.logout, {method: 'POST', body: {}}).catch(() => undefined);
     clearDemoSession();
-    setDemoUser(null);
+    setSessionToken(null);
     setSession(null);
     notify(null);
     queryClient.clear();

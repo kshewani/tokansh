@@ -48,9 +48,22 @@ Vite forwards `/api` to `http://localhost:8000`.
 | Distribution | `/distributions/...` | none: reconstructs record-date holdings from committed operations | works once ANSH is issued |
 | Reconcile | `POST /ledger/operations/{id}/reconcile` | commit status by transaction id | 503 |
 
-Demo identity: the client sends `X-Demo-User-Id` (from `POST /api/v1/demo/active-role`). It is not
-authentication; every service still checks the user's role. Consequential operations need an
-`Idempotency-Key` header.
+Demo sign-in: `POST /api/v1/auth/login` with `{"username", "password"}` returns a bearer token; send it
+as `Authorization: Bearer <token>`. Usernames: `meera` (issuer), `admin`, `aarav` (investor) and the
+fictional lenders `axim-bank`, `real-finance`, `horizon-credit`. Any non-empty password is accepted, so
+this is **not** real authentication. Sessions live in memory: a restart (or a sleeping free Render
+instance) signs everyone out. Login is refused when `APP_ENV=production` or `DEMO_AUTH_ENABLED=false`.
+`GET /api/v1/auth/me` and `POST /api/v1/auth/logout` complete the set. Every service still checks the
+caller's role. Consequential operations need an `Idempotency-Key` header.
+
+**Lenders** (`GET /api/v1/financing/lenders`): Axim Bank 10% (6/12 months, max LTV 60%), Real Finance
+9% (6/12/24 months, 55%), Horizon Credit 12% (3/6/12 months, 70%, capped by the platform's
+`MAX_LTV_BPS`). A loan application names a lender and offer; rate and tenure must match the offer.
+Each lender signs in separately and acts only on its own loans. All simulated.
+
+**Demo wallet** (`GET /api/v1/wallet`, `POST /api/v1/wallet/fund`, `POST /api/v1/wallet/withdraw`):
+simulated INR cash. Disbursement credits the borrower once; repayment debits the wallet and fails with
+`INSUFFICIENT_DEMO_CASH` when short. No bank or real money.
 
 ## Code layout
 
