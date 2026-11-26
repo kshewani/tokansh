@@ -96,7 +96,7 @@ export default function App(){
     <Route path="/wallet" element={<Guard roles={['INVESTOR']}><DemoWallet/></Guard>}/>
     <Route path="/properties" element={<Guard roles={['INVESTOR']}><PropertyWorkspace/></Guard>}/>
     <Route path="/registry" element={<Guard roles={['INVESTOR']}><Registry/></Guard>}/>
-    <Route path="/issuance" element={<Guard roles={['ISSUER']}><Issuance/></Guard>}/>
+    <Route path="/issuance" element={<Guard roles={['INVESTOR']}><Issuance/></Guard>}/>
     <Route path="/marketplace" element={<Guard roles={['ISSUER','INVESTOR']}><Marketplace/></Guard>}/>
     <Route path="/portfolio" element={<Guard roles={['INVESTOR']}><PortfolioWorkspace/></Guard>}/>
     <Route path="/transactions" element={<Activity/>}/>

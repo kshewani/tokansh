@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     tokansh_operator_secret: str | None = None
     drunix_gateway_url: str | None = None
     drunix_gateway_timeout_seconds: float = 7.0
+    initial_issue_price_minor: int = 100000
 
     @field_validator("drunix_gateway_url")
     @classmethod
@@ -40,6 +41,13 @@ class Settings(BaseSettings):
     def bounded_gateway_timeout(cls, value: float) -> float:
         if not 0.1 <= value <= 12:
             raise ValueError("Gateway timeout must be between 0.1 and 12 seconds")
+        return value
+
+    @field_validator("initial_issue_price_minor")
+    @classmethod
+    def bounded_issue_price(cls, value: int) -> int:
+        if type(value) is not int or not 0 < value <= 9_999_999_999_999_999:
+            raise ValueError("INITIAL_ISSUE_PRICE_MINOR must be a positive integer within the supported range")
         return value
 
     @field_validator("app_port")

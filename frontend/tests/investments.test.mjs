@@ -38,6 +38,17 @@ test('review captures a fresh balance via GET, preserves source and refuses unav
  await assert.rejects(captureIncomeSnapshot(async()=>{throw new Error('test-only unavailable');},aarav,'10000',id));
  await assert.rejects(captureIncomeSnapshot(async()=>({quantity:2,source:'UI_PREVIEW'}),aarav,'10000',id));
 });
+
+test('income snapshot propagates a selected non-default property UUID',async()=>{
+ const property='f6169750-4676-4e99-887f-2bc5471bd519';
+ const snapshot=await captureIncomeSnapshot(async(path,options)=>{
+  assert.equal(path,`/api/v1/ansh/balances/${property}/${aarav}`);
+  assert.equal(options.method,'GET');
+  return {schema_version:1,property_id:property,holder_id:aarav,quantity:7,source:'DRUNIX_EVALUATE'};
+ },aarav,'10000',id,()=>time,property);
+ assert.equal(snapshot.lines[0].asset_id,property);
+ assert.equal(snapshot.lines[0].units,7);
+});
 test('history is empty until explicit local completion; repeated confirmation cannot double-count',()=>{
  const store=storage(),snapshot=incomeSnapshot(id,aarav,ids.property,2,'10000',time,'DRUNIX_CURRENT_BALANCE');
  assert.deepEqual(readPayouts(store,aarav,ids.property,'DRUNIX_CURRENT_BALANCE'),[]);

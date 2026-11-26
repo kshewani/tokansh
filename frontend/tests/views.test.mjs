@@ -76,12 +76,49 @@ const {QueryClient,QueryClientProvider}=await import('@tanstack/react-query');
 const {AppProvider}=await import('../src/app/context.tsx');
 const {InvestorProvider}=await import('../src/app/investor.tsx');
 const {ConnectedMarketplace}=await import('../src/pages/Investor.tsx');
-test('connected marketplace renders missing balances without scenario holdings or invented evidence',()=>{
+test('connected marketplace shows loading offerings without scenario holdings or invented evidence',()=>{
  const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});
  const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
- assert.match(html,/ANSH Marketplace/);assert.match(html,/Authoritative balance unavailable/);
- assert.match(html,/Simulated payment outcome/);assert.match(html,/Review acquisition/);
+ assert.match(html,/ANSH Marketplace/);assert.match(html,/Loading active offerings…/);
+ assert.doesNotMatch(html,/Authoritative balance unavailable|Simulated payment outcome|Review acquisition|Purchase existing ANSH/);
  assert.doesNotMatch(html,/500 ANSH|100,000 ANSH|COMMITTED_VALID|Bearer|TOKANSH_TRANSFER_SECRET/);
+ cache.clear();
+});
+
+test('connected marketplace shows an empty offering state without invented inventory or purchase controls',()=>{
+ const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ cache.setQueryData(['marketplace-offerings'],[]);
+ cache.setQueryData(['marketplace-properties'],[]);
+ const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
+ assert.match(html,/No active offerings are currently available/);
+ assert.doesNotMatch(html,/Purchase existing ANSH|500 ANSH|100,000 ANSH|COMMITTED_VALID/);
+ cache.clear();
+});
+
+test('connected marketplace keeps offering errors separate from empty and purchase states',()=>{
+ const cache=new QueryClient({defaultOptions:{queries:{retry:false,retryOnMount:false,staleTime:Infinity}}});
+ const query=cache.getQueryCache().build(cache,{queryKey:['marketplace-offerings'],queryFn:async()=>[],staleTime:Infinity,retryOnMount:false});
+ query.setState({...query.state,error:new RequestError(503,'HTTP_ERROR','Offering service unavailable'),
+  errorUpdateCount:1,errorUpdatedAt:Date.now(),status:'error',fetchStatus:'idle'});
+ cache.setQueryData(['marketplace-properties'],[]);
+ const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
+ assert.match(html,/role="alert"/);assert.match(html,/Offering service unavailable/);
+ assert.doesNotMatch(html,/No active offerings are currently available|Purchase existing ANSH/);
+ cache.clear();
+});
+
+test('connected marketplace disables purchase when authoritative wallet data is unavailable',()=>{
+ const cache=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
+ cache.setQueryData(['marketplace-offerings'],[{
+  id:'70000000-0000-4000-8000-000000000001',property_id:'f6169750-4676-4e99-887f-2bc5471bd518',
+  issuer_id:'00000000-0000-4000-8000-000000000003',offered_quantity:5,sold_quantity:0,reserved_quantity:0,
+  available_quantity:5,price_minor:'100000',currency:'INR',status:'ACTIVE',created_at:'2026-11-20T00:00:00Z',updated_at:'2026-11-20T00:00:00Z'
+ }]);
+ cache.setQueryData(['marketplace-properties'],[]);
+ const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
+ assert.match(html,/Available simulated cash/);assert.match(html,/Unavailable/);
+ assert.match(html,/disabled=""[^>]*>Purchase existing ANSH/s);
+ assert.doesNotMatch(html,/500 ANSH|100,000 ANSH|COMMITTED_VALID|Simulated payment outcome/);
  cache.clear();
 });
 

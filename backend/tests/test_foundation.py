@@ -147,10 +147,11 @@ def test_production_without_auth_cannot_access_property_workflows(settings, prop
 
 
 def test_unimplemented_ledger_operations_never_fall_back(client):
-    for path in ["/api/v1/ansh/issuances", "/api/v1/collateral/pledges"]:
+    for path in ["/api/v1/collateral/pledges"]:
         response = client.post(path, json={})
         assert response.status_code == 404
         assert "COMMITTED" not in response.text
+    assert client.post("/api/v1/ansh/issuances", json={}).status_code == 401
 
 
 def test_openapi_describes_existing_request_response_and_error_contracts(client):

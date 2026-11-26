@@ -17,6 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from app.dependencies import DemoActor, demo_actor, get_session
 from app.errors import ApplicationError, success
 from app.properties.models import ApplicationOperation
+from app.properties.models import SaleOffering
+from app.reservations import financing_reserved_quantity, offering_committed_quantity, transfer_reserved_quantity
 from app.registration import SIGNER, exact_object, secret
 
 UUID_PATTERN = r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
@@ -64,6 +66,10 @@ class TransferGateway:
                     known = {
                         (409, 'INSUFFICIENT_BALANCE'): 'Sender has insufficient ANSH.',
                         (409, 'IDEMPOTENCY_CONFLICT'): 'The ledger operation conflicts with an existing operation.',
+                        (409, 'ISSUANCE_ALREADY_COMPLETED'): 'This property has already completed issuance.',
+                        (422, 'INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY'): 'Initial issuance must equal approved supply.',
+                        (422, 'ISSUANCE_LIMIT_EXCEEDED'): 'Requested issuance exceeds approved supply.',
+                        (403, 'UNAUTHORIZED'): 'Identity is not authorized.',
                         (404, 'PROPERTY_NOT_FOUND'): 'Registered property was not found.',
                         (504, 'LEDGER_TIMEOUT'): 'DRUNIX did not respond within its deadline.',
                         (503, 'LEDGER_UNAVAILABLE'): 'DRUNIX is unavailable.',
@@ -133,7 +139,7 @@ class TransferService:
             row, data = self.row(session, operation_id, actor_id)
             return self.view(row, data)
 
-    def initiate(self, command, actor, key, correlation_id):
+    def initiate(self, command, actor, key, correlation_id, purchase_offering_id=None, operation_id=None):
         if command.from_user_id == command.to_user_id:
             raise ApplicationError(422, 'INVALID_REQUEST', 'Sender and recipient must differ.')
         if ((command.kind == 'ACQUISITION' and (actor.role != 'INVESTOR' or command.to_user_id != actor.user_id))
@@ -148,7 +154,7 @@ class TransferService:
                 if existing.request_hash != fingerprint:
                     raise ApplicationError(409, 'IDEMPOTENCY_CONFLICT', 'This key was used with different parameters.')
                 return self.read(existing.id, actor.user_id)
-            operation_id = str(uuid4())
+            operation_id = operation_id or str(uuid4())
             data = dict(type='ANSH_TRANSFER', request=request, payment={'simulated': True, 'status': 'NOT_EXECUTED'},
                         artifact=None, transaction_id=None, commit=None)
             session.add(ApplicationOperation(id=operation_id, actor_id=actor.user_id, idempotency_key=key,
@@ -170,7 +176,20 @@ class TransferService:
                 if prop.get('property_id') != command.asset_id or prop.get('issuer_id') != command.from_user_id:
                     raise ApplicationError(409, 'INVALID_SELLER', 'Acquisition must use the registered issuer inventory.')
             balance = self.gateway.balance(command.asset_id, command.from_user_id, correlation_id)
-            if balance['quantity'] < command.quantity:
+            with self.database.sessions() as reservation_session:
+                committed = offering_committed_quantity(
+                    reservation_session, command.from_user_id, command.asset_id,
+                    exclude_offering_id=purchase_offering_id)
+                if purchase_offering_id is not None:
+                    offering = reservation_session.get(SaleOffering, purchase_offering_id)
+                    if (offering is None or offering.property_id != command.asset_id or offering.issuer_id != command.from_user_id
+                            or offering.status != 'ACTIVE'):
+                        raise ApplicationError(409, 'OFFERING_NOT_ACTIVE', 'The sale offering is no longer active.')
+                    committed += offering.offered_quantity - offering.sold_quantity - command.quantity
+                committed += financing_reserved_quantity(reservation_session, command.from_user_id, command.asset_id)
+                committed += transfer_reserved_quantity(reservation_session, command.from_user_id, command.asset_id,
+                                                        exclude_operation_id=operation_id)
+            if balance['quantity'] - committed < command.quantity:
                 raise ApplicationError(409, 'INSUFFICIENT_BALANCE', 'Sender has insufficient ANSH.')
             data['payment'] = dict(simulated=True, status=command.payment_outcome)
             if command.payment_outcome == 'FAILED':

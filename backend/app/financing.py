@@ -15,6 +15,7 @@ from app.properties.models import ApplicationOperation
 from app.transfers import Identifier
 from app.lenders import LENDERS, DEFAULT_LENDER, terms
 from app.wallet import MAX_CASH, change
+from app.reservations import financing_reserved_quantity, offering_committed_quantity
 
 RESERVED = {'APPROVED', 'DISBURSED', 'REPAID'}
 TYPE = 'SIMULATED_FINANCING'
@@ -80,11 +81,14 @@ class FinancingService:
         return sum(data['quantity'] for row in self.rows(session, borrower)
                    if (data := self.data(row))['property_id'] == property_id and data['state'] in RESERVED)
 
+    def total_reserved(self, session, borrower, property_id):
+        return self.reserved(session, borrower, property_id) + offering_committed_quantity(session, borrower, property_id)
+
     def eligibility(self, property_id, actor, correlation):
         # Balance is always a fresh authenticated read, never a local projection.
         balance = self.gateway.balance(property_id, actor.user_id, correlation)
         with self.database.sessions() as session:
-            reserved = self.reserved(session, actor.user_id, property_id)
+            reserved = self.total_reserved(session, actor.user_id, property_id)
         return dict(property_id=property_id, holder_id=actor.user_id, owned=balance['quantity'],
                     ownership_source='DRUNIX_EVALUATE', observed_at=now(), reserved_simulated=reserved,
                     eligible_simulated=max(0, balance['quantity'] - reserved),
@@ -146,7 +150,7 @@ class FinancingService:
                 return self.data(existing)
             snapshot = terms(command)
             valuation = quote(command)
-            if command.quantity > balance['quantity'] - self.reserved(session, actor.user_id, command.property_id):
+            if command.quantity > balance['quantity'] - self.total_reserved(session, actor.user_id, command.property_id):
                 raise ApplicationError(409, 'INSUFFICIENT_COLLATERAL', 'Requested units exceed currently eligible simulated collateral.')
             loan_id = str(uuid4())
             data = dict(type=TYPE, id=loan_id, borrower_id=actor.user_id, **command.model_dump(), **valuation,
@@ -185,7 +189,7 @@ class FinancingService:
             if action in {'repay', 'release'} and actor.user_id != data['borrower_id']:
                 raise ApplicationError(403, 'INSUFFICIENT_PERMISSIONS', 'The investor must confirm simulated repayment and release.')
             if balance is not None:
-                reserved = self.reserved(session, data['borrower_id'], data['property_id'])
+                reserved = self.total_reserved(session, data['borrower_id'], data['property_id'])
                 other = reserved - (data['quantity'] if data['state'] in RESERVED else 0)
                 enough = data['quantity'] <= balance['quantity'] - other
                 data['assessment'] = dict(simulated=True, eligible=enough, observed_owned=balance['quantity'],

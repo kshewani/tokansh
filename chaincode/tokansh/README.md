@@ -31,11 +31,11 @@ Fabric composite keys:
 - `CreateCompositeKey("property", []string{property_id})`
 - `CreateCompositeKey("operation", []string{"Org1MSP", operation_id})`
 
-Version-1 property state stores immutable approved constraints, issuer/approval references, derived registering MSP/principal, registration operation/transaction IDs and proposal timestamp. `approved_supply` is a **lifetime cumulative issuance ceiling**, not minted supply. Registration itself creates no holdings or issuance state. M4.1 tracks the lifetime ceiling in separate supply and inventory keys, without changing existing property or registration receipt schemas.
+Version-1 property state stores immutable approved constraints, issuer/approval references, derived registering MSP/principal, registration operation/transaction IDs and proposal timestamp. A newly registered property permits one issuance whose quantity must equal `approved_supply`; registration itself creates no holdings or issuance state. Existing nonzero issuance state remains readable and transferable, but cannot receive additional issuance. The separate supply and inventory keys preserve existing property and registration receipt schemas.
 
 Version-1 receipts store authorizing identity, function, canonical request digest, property ID, original transaction ID and original registration result. The digest covers typed command fields, function and derived MSP/principal; whitespace/field order do not change it. Identical replay returns the original result without writes or new timestamps. Conflicting operation reuse and registration under a different operation are rejected. Receipts are not deleted.
 
-Errors are deterministic JSON strings with `code` and fixed `message`: INVALID_ARGUMENT, UNSUPPORTED_SCHEMA_VERSION, UNAUTHORIZED, PROPERTY_NOT_FOUND, OPERATION_NOT_FOUND, PROPERTY_ALREADY_REGISTERED, IDEMPOTENCY_CONFLICT, LEDGER_STATE_ERROR, ISSUANCE_LIMIT_EXCEEDED. Underlying errors are not returned. Application/gateway HTTP envelopes remain separate.
+Errors are deterministic JSON strings with `code` and fixed `message`: INVALID_ARGUMENT, UNSUPPORTED_SCHEMA_VERSION, UNAUTHORIZED, PROPERTY_NOT_FOUND, OPERATION_NOT_FOUND, PROPERTY_ALREADY_REGISTERED, IDEMPOTENCY_CONFLICT, LEDGER_STATE_ERROR, ISSUANCE_LIMIT_EXCEEDED, INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY, ISSUANCE_ALREADY_COMPLETED. Underlying errors are not returned. Application/gateway HTTP envelopes remain separate.
 
 The result's transaction ID comes from Fabric transaction context. Execution/endorsement results **do not prove commitment**. A proposal timestamp is not trusted wall-clock time. Both writes are in one simulation; an error causes the transaction's write set to be discarded by Fabric. No manual rollback writes occur.
 
@@ -49,7 +49,7 @@ go test -mod=readonly -race ./...
 go vet -mod=readonly ./...
 ```
 
-Tests cover transfers and deterministic state and errors, authorization, strict command boundaries, replay/conflict, reads, immutable registration, cumulative issuance ceilings, inventory consistency, overflow, corrupt records and state-access/write failures. The isolated stub models Fabric's commit/discard boundary. These tests cannot establish real MVCC, endorsement-policy enforcement, atomic commit or DRUNIX finality. No live network tests, deployment, initialization or ledger writes are part of local validation. Independent review and explicit authorization are required before deploying this extension. Gateway/backend/frontend code is unchanged in this task; it does not yet expose transfers.
+Tests cover transfers and deterministic state and errors, authorization, strict command boundaries, replay/conflict, reads, immutable registration, one-time full-supply issuance, historical compatibility, inventory consistency, overflow, corrupt records and state-access/write failures. The isolated stub models Fabric's commit/discard boundary. These tests cannot establish real MVCC, endorsement-policy enforcement, atomic commit or DRUNIX finality. No live network tests, deployment, initialization or ledger writes are part of local validation. Independent review and explicit authorization are required before deploying this extension. Gateway/backend/frontend code is unchanged in this task; it does not yet expose issuance.
 
 
 ## Historical M4.1 — Issuer inventory only
@@ -90,17 +90,17 @@ New composite keys (all records use `schema_version: 1`):
 Issuance operation IDs are unique across properties within the separate issuance
 namespace. The existing registration `operation` namespace is unchanged. A digest
 binds the typed command, `IssueANSH`, MSP and authenticated principal; JSON ordering
-and whitespace do not change it. An identical operation returns its original
-transaction ID and issuance snapshot, even after later issuances; a changed
-property or quantity under that operation returns `IDEMPOTENCY_CONFLICT`.
+and whitespace do not change it. An identical successful operation returns its
+original transaction ID and issuance snapshot without reaching the new issuance
+policy checks; a changed property or quantity under that operation returns
+`IDEMPOTENCY_CONFLICT`. A different operation cannot issue a property again.
 
 A registered property with both new supply/inventory keys absent reads as zero
 issued with its full approved capacity, without writing keys. A partially missing
 pair, invalid schema, inconsistent receipt or balance/counter mismatch fails with
-`LEDGER_STATE_ERROR`. There are no transfers or burns in M4.1: issuer inventory must
-equal cumulative issuance, and other holders have zero balances. These checks
-must be reviewed together with conservation rules before adding transfer/burn
-functions; do not simply weaken them when extending the lifecycle.
+`LEDGER_STATE_ERROR`. A fresh property must issue its entire approved supply in one
+operation. Existing nonzero states, including historical partial issuance, remain
+valid for reads and transfers but are closed to further issuance.
 
 One `IssueANSH` simulation reads the property, receipt, shared supply key and issuer
 balance; it writes exactly the supply, issuer balance and receipt. A failed write
@@ -150,10 +150,10 @@ returns the original result without writes, even after later transfers; conflict
 reuse fails. No extra public receipt-read function is introduced in this task.
 
 The historical M4.1 inventory assumptions above are superseded: issuer and investor
-balances can each be between zero and cumulative issued supply. Issuance still
-adds only to issuer inventory and lifetime issued supply; its historical result's
-issuer balance may now be smaller than cumulative supply. Existing immutable
-issuance receipts remain readable and are never rewritten. A transfer subtracts and
+balances can each be between zero and cumulative issued supply. New issuance adds
+the full approved supply only to issuer inventory; historical result issuer balances
+may be smaller than approved supply. Existing immutable issuance receipts remain
+readable and are never rewritten. A transfer subtracts and
 adds the same integer quantity, checks bounded pair conservation before addition,
 and never writes the issuance state. Starting with the valid M4.1 ledger, issuance
 and transfers therefore preserve total ownership equal to issued supply. Reads do

@@ -14,12 +14,14 @@ class NewProperty(BaseModel):
     category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     valuation: MoneyString
     proposed_supply: Annotated[int, Field(strict=True, gt=0, le=9_007_199_254_740_991)]
-    issue_price: MoneyString
+    issue_price: MoneyString | None = None
     currency: Literal["INR"]
 
     @field_validator("valuation", "issue_price")
     @classmethod
-    def positive_money(cls, value: str) -> str:
+    def positive_money(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         amount = Decimal(value)
         if amount <= 0:
             raise ValueError("Monetary amounts must be positive")
@@ -33,14 +35,14 @@ class PropertyRead(BaseModel):
     category: str
     valuation: str
     proposed_supply: int
-    approved_supply: Literal[0] = 0
+    approved_supply: int = 0
     unit_price: str
     currency: Literal["INR"]
     issuer_id: str
     status: Literal["DRAFT"]
     verification_status: Literal["NOT_VERIFIED"] = "NOT_VERIFIED"
-    ledger_registration_status: Literal["NOT_REGISTERED"] = "NOT_REGISTERED"
-    ledger_transaction_id: None = None
+    ledger_registration_status: Literal["NOT_REGISTERED", "REGISTERED"] = "NOT_REGISTERED"
+    ledger_transaction_id: str | None = None
     created_at: str
 
 

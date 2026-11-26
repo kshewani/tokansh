@@ -1,12 +1,12 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {ArrowRight,Check,Landmark,RefreshCw} from 'lucide-react';
 import {useApp} from '../app/context';
+import {useInvestor} from '../app/investor';
 import {useFinancing} from '../app/financing';
 import {useLenders} from '../app/demoFinance';
 import {financeQuote,moneyINR} from '../api/financing';
 import type {FinanceCommand} from '../api/financing';
-import {investorDemo} from '../api/transfers';
 import {errorFeedback} from '../api/client';
 import {Card,Metric,SectionHeading,EmptyState} from '../components/ui/card';
 import {Button} from '../components/ui/button';
@@ -14,8 +14,12 @@ import {Field,SelectField,DataRow} from '../components/ui/form';
 import {ReviewDialog} from '../components/ui/dialog';
 import {LoanDetails,ReservationNotice} from './Financing';
 export function FinancingStudio(){
- const {session}=useApp(),institution=session?.organization_id||'',catalogue=useLenders();
- const {role,loans,eligibility,mutation,apply,action,refresh}=useFinancing(institution||'axim-bank');
+ const {session}=useApp(),{portfolio}=useInvestor(),institution=session?.organization_id||'',catalogue=useLenders();
+ const eligibleProperties=portfolio.data?.items.filter(item=>item.observation_status==='AVAILABLE'&&item.owned_units!==null&&item.owned_units>0)||[];
+ const [selectedPropertyId,setSelectedPropertyId]=useState('');
+ useEffect(()=>{if(!selectedPropertyId&&eligibleProperties[0])setSelectedPropertyId(eligibleProperties[0].property_id);},[eligibleProperties,selectedPropertyId]);
+ const selectedProperty=eligibleProperties.find(item=>item.property_id===selectedPropertyId);
+ const {role,loans,eligibility,mutation,apply,action,refresh}=useFinancing(selectedPropertyId,institution||'axim-bank');
  const [step,setStep]=useState(1),[quantity,setQuantity]=useState('1'),[offerKey,setOffer]=useState(''),[tenure,setTenure]=useState(0);
  const [selected,setSelected]=useState<string|null>(null),[review,setReview]=useState<string|null>(null);
  const isLender=role==='LENDER';
@@ -23,10 +27,10 @@ export function FinancingStudio(){
  const allOffers=catalogue.data?.flatMap(l=>l.offers.map(o=>({l,o})))||[];
  const chosen=allOffers.find(({l,o})=>l.id+':'+o.id===offerKey);
  const eligible=eligibility.isSuccess&&!eligibility.isFetching?eligibility.data:null;
- const q=Number(quantity),valid=/^[1-9][0-9]*$/.test(quantity)&&Number.isSafeInteger(q)&&!!eligible&&q<=eligible.eligible_simulated;
+ const q=Number(quantity),valid=/^[1-9][0-9]*$/.test(quantity)&&Number.isSafeInteger(q)&&!!selectedProperty&&!!eligible&&q<=eligible.eligible_simulated;
  let command:FinanceCommand|null=null,estimate:ReturnType<typeof financeQuote>|null=null;
  if(chosen&&valid){const months=tenure||chosen.o.tenures_months[0];try{
- command={property_id:investorDemo.property,asset_class:'ANSH',quantity:q,unit_value_minor:'1000000',lender_id:chosen.l.id,offer_id:chosen.o.id,ltv_percent:chosen.o.max_ltv_percent,annual_rate_bps:chosen.o.annual_rate_bps,term_months:months};
+ command={property_id:selectedPropertyId,asset_class:'ANSH',quantity:q,unit_value_minor:selectedProperty?.initial_issue_price_minor||'0',lender_id:chosen.l.id,offer_id:chosen.o.id,ltv_percent:chosen.o.max_ltv_percent,annual_rate_bps:chosen.o.annual_rate_bps,term_months:months};
  estimate=financeQuote(q,command.unit_value_minor,command.ltv_percent,command.annual_rate_bps,months);
  }catch{command=null;}}
  const principal=(loans.data||[]).reduce((sum,l)=>sum+BigInt(l.outstanding_principal_minor),0n);
@@ -38,7 +42,7 @@ export function FinancingStudio(){
  {!isLender&&eligibility.error&&<p role="alert" className="my-4 text-sm text-red-700">{errorFeedback(eligibility.error)} Financing requires a fresh ownership read. Migration 0003 may be required.</p>}
  <ReservationNotice/>
  {!isLender&&<Card className="mt-6" title="Build your financing request" description="ANSH only · REIT units are not eligible. Valuation and rates are illustrative."><ol className="mb-7 flex flex-wrap gap-2" aria-label="Financing steps">{['Collateral','Compare lenders','Review terms','Track application'].map((label,i)=><li className="step-pill" key={label} aria-current={step===i+1?'step':undefined}>{step>i+1?<Check size={13}/>:i+1} {label}</li>)}</ol>
- {step===1&&<div className="max-w-xl space-y-5"><div className="rounded-xl bg-slate-50 p-5"><p className="font-bold">TechPark One · ANSH</p><p className="mt-2 text-xs text-slate-500">Illustrative unit valuation: ₹10,000. Ownership is read from DRUNIX.</p></div><Field id="collateral-quantity" label="Units to reserve in simulation" type="number" min={1} max={eligible?.eligible_simulated} step={1} value={quantity} onChange={e=>setQuantity(e.target.value)}/><Button disabled={!valid||!catalogue.data} onClick={()=>setStep(2)}>Compare lender offers <ArrowRight size={16}/></Button></div>}
+ {step===1&&<div className="max-w-xl space-y-5"><div className="rounded-xl bg-slate-50 p-5"><SelectField id="collateral-property" label="Property position" value={selectedPropertyId} onChange={e=>{setSelectedPropertyId(e.target.value);setQuantity('1');}}>{eligibleProperties.map(item=><option key={item.property_id} value={item.property_id}>{item.name} · {item.ansh_id}</option>)}</SelectField>{selectedProperty?<p className="mt-3 text-xs text-slate-500">{selectedProperty.owned_units} held · {selectedProperty.transferable_units??'—'} transferable · initial issue price {moneyINR(selectedProperty.initial_issue_price_minor)}</p>:<p className="mt-3 text-xs text-slate-500">No authoritative property position is available.</p>}</div><Field id="collateral-quantity" label="Units to reserve in simulation" type="number" min={1} max={eligible?.eligible_simulated} step={1} value={quantity} onChange={e=>setQuantity(e.target.value)} disabled={!selectedProperty}/><Button disabled={!valid||!catalogue.data} onClick={()=>setStep(2)}>Compare lender offers <ArrowRight size={16}/></Button></div>}
  {step===2&&<><div className="grid gap-4 md:grid-cols-3">{allOffers.map(({l,o})=><label key={l.id+o.id} className={'cursor-pointer rounded-2xl border p-5 '+(offerKey===l.id+':'+o.id?'border-blue-500 bg-blue-50':'border-slate-200')}><input type="radio" name="lender-offer" value={l.id+':'+o.id} checked={offerKey===l.id+':'+o.id} onChange={()=>{setOffer(l.id+':'+o.id);setTenure(o.tenures_months[0]);}}/><Landmark className="my-4 text-blue-600"/><strong>{l.name}</strong><p className="mt-4 text-3xl font-bold">{o.annual_rate_bps/100}% <span className="text-xs font-normal">p.a. illustrative</span></p><p className="mt-3 text-sm">Up to {o.max_ltv_percent}% LTV</p><p className="mt-2 text-xs text-slate-500">{o.tenures_months.join(' / ')} month terms · simulated</p></label>)}</div><div className="mt-5 flex gap-3"><Button variant="secondary" onClick={()=>setStep(1)}>Back</Button><Button disabled={!chosen} onClick={()=>setStep(3)}>Review selected offer</Button></div></>}
  {step===3&&chosen&&<div className="max-w-xl space-y-5"><h3 className="font-bold">{chosen.l.name} · illustrative offer</h3><SelectField id="offer-tenure" label="Repayment term" value={tenure} onChange={e=>setTenure(Number(e.target.value))}>{chosen.o.tenures_months.map(m=><option key={m} value={m}>{m} months</option>)}</SelectField><dl><DataRow label="Collateral" value={quantity+' ANSH'}/><DataRow label="Estimated principal" value={estimate?moneyINR(estimate.principal_minor):'—'}/><DataRow label="Fixed-term interest" value={estimate?moneyINR(estimate.interest_minor):'—'}/><DataRow label="Full repayment" value={estimate?moneyINR(estimate.repayment_minor):'—'}/></dl><p className="text-xs text-slate-500">An illustrative estimate, validated by the backend on application. Full principal and fixed-term interest are repaid together.</p><div className="flex gap-3"><Button variant="secondary" onClick={()=>setStep(2)}>Back</Button><Button disabled={!command||mutation.isPending} onClick={()=>setReview('apply')}>Submit for review</Button></div></div>}
  {step===4&&<div className="space-y-4"><p className="text-emerald-800">Application saved. Your lender must assess and approve it before simulated disbursement.</p><Button variant="secondary" onClick={()=>setStep(1)}>Explore another offer</Button></div>}

@@ -64,6 +64,8 @@ def test_backend_rejects_invalid_or_authoritative_fields(client, property_payloa
 
 def test_required_fields_and_malformed_json(client, property_payload, issuer_headers):
     for field in property_payload:
+        if field == "issue_price":
+            continue
         payload = {key: value for key, value in property_payload.items() if key != field}
         assert client.post("/api/v1/properties", json=payload, headers=issuer_headers).status_code == 422
     response = client.post("/api/v1/properties", content="{broken", headers={**issuer_headers, "Content-Type": "application/json"})

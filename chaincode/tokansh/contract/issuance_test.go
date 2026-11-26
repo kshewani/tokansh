@@ -15,7 +15,7 @@ import (
 )
 
 func issuanceCommand() IssuanceCommand {
-	return IssuanceCommand{1, "50000000-0000-4000-8000-000000000001", command().PropertyID, 40}
+	return IssuanceCommand{1, "50000000-0000-4000-8000-000000000001", command().PropertyID, 100}
 }
 func issuanceJSON(t *testing.T, c IssuanceCommand) string {
 	t.Helper()
@@ -73,7 +73,7 @@ func mustIssue(t *testing.T, cc *SmartContract, ctx *contractapi.TransactionCont
 	return result
 }
 
-func TestIssuanceInventoryCeilingAndHistoricalReplay(t *testing.T) {
+func TestIssuanceFullSupplyAndHistoricalReplay(t *testing.T) {
 	cc, ctx, stub, _ := issuanceSetup(t, 100)
 	original := ledgerSnapshot(stub)
 	c := issuanceCommand()
@@ -92,28 +92,16 @@ func TestIssuanceInventoryCeilingAndHistoricalReplay(t *testing.T) {
 		t.Fatal("reads initialized ledger state")
 	}
 	first := mustIssue(t, cc, ctx, stub, c)
-	if first.Quantity != 40 || first.IssuerBalance != 40 || first.CumulativeIssuedSupply != 40 || first.RemainingIssuanceCapacity != 60 || first.IssuerID != command().IssuerID || first.TransactionID != stub.txID || stub.writes-writes != 3 || len(stub.state) != 5 {
+	if first.Quantity != 100 || first.IssuerBalance != 100 || first.CumulativeIssuedSupply != 100 || first.RemainingIssuanceCapacity != 0 || first.IssuerID != command().IssuerID || first.TransactionID != stub.txID || stub.writes-writes != 3 || len(stub.state) != 5 {
 		t.Fatal(first)
 	}
 	op, err := cc.GetIssuanceOperation(ctx, c.OperationID)
 	if err != nil || op.Result != *first || op.Function != "IssueANSH" || op.AuthorizingMSP != registrationMSP || op.AuthorizingPrincipal != registrationPrincipal() || !digestPattern.MatchString(op.RequestDigest) {
 		t.Fatal(op, err)
 	}
-	c.OperationID = "50000000-0000-4000-8000-000000000002"
-	c.Quantity = 60
-	stub.txID = "test-only-issuance-tx-2"
-	second := mustIssue(t, cc, ctx, stub, c)
-	state, err = cc.GetIssuanceState(ctx, c.PropertyID)
-	if err != nil || second.IssuerBalance != 100 || state.CumulativeIssuedSupply != 100 || state.RemainingIssuanceCapacity != 0 {
-		t.Fatal(second, state, err)
-	}
-	inventory, err := cc.GetBalance(ctx, c.PropertyID, command().IssuerID)
-	if err != nil || inventory.Quantity != 100 {
-		t.Fatal(inventory, err)
-	}
 	before := ledgerSnapshot(stub)
 	writes = stub.writes
-	// Replaying an earlier operation after later issuance returns its original snapshot.
+	// Replaying the successful operation returns its original snapshot without writes.
 	replay := mustIssue(t, cc, ctx, stub, issuanceCommand())
 	if *replay != *first || stub.writes != writes || !reflect.DeepEqual(before, stub.state) {
 		t.Fatal("replay minted units or changed original result")
@@ -121,7 +109,7 @@ func TestIssuanceInventoryCeilingAndHistoricalReplay(t *testing.T) {
 	c.OperationID = "50000000-0000-4000-8000-000000000003"
 	c.Quantity = 1
 	_, err = invokeIssuance(cc, ctx, stub, issuanceJSON(t, c))
-	assertCode(t, err, "ISSUANCE_LIMIT_EXCEEDED")
+	assertCode(t, err, "ISSUANCE_ALREADY_COMPLETED")
 	if stub.writes != writes || !reflect.DeepEqual(before, stub.state) {
 		t.Fatal("excess issuance wrote state")
 	}
@@ -141,26 +129,118 @@ func TestIssuanceInventoryCeilingAndHistoricalReplay(t *testing.T) {
 	}
 }
 
+func TestIssuanceRejectsPartialAndExcessInitialSupply(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		quantity int64
+		code     string
+	}{
+		{"partial", 99, "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY"},
+		{"above approved", 101, "ISSUANCE_LIMIT_EXCEEDED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cc, ctx, stub, _ := issuanceSetup(t, 100)
+			c := issuanceCommand()
+			c.Quantity = tc.quantity
+			before, writes := ledgerSnapshot(stub), stub.writes
+			_, err := invokeIssuance(cc, ctx, stub, issuanceJSON(t, c))
+			assertCode(t, err, tc.code)
+			if stub.writes != writes || !reflect.DeepEqual(before, stub.state) {
+				t.Fatal("rejected issuance changed ledger")
+			}
+		})
+	}
+}
+
+func seedHistoricalPartialIssuance(t *testing.T, stub *testStub, propertyID, issuerID string, approved, issued int64) IssuanceCommand {
+	t.Helper()
+	command := IssuanceCommand{1, "50000000-0000-4000-8000-000000000004", propertyID, issued}
+	state := IssuanceState{1, propertyID, issuerID, approved, issued, approved - issued}
+	balance := Balance{1, propertyID, issuerID, issued}
+	result := IssuanceResult{propertyID, issuerID, command.OperationID, "historical-issuance-tx", issued, issued, approved - issued, issued}
+	digest, err := issuanceDigest(command, registrationPrincipal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := IssuanceOperation{1, command.OperationID, registrationMSP, registrationPrincipal(), "IssueANSH", digest, propertyID, issuerID, issued, result.TransactionID, result}
+	for _, record := range []struct {
+		object string
+		attrs  []string
+		value  any
+	}{
+		{"issuance", []string{propertyID}, state},
+		{"balance", []string{propertyID, issuerID}, balance},
+		{"issuance_operation", []string{registrationMSP, command.OperationID}, receipt},
+	} {
+		encoded, err := json.Marshal(record.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stub.state[issuanceKey(t, record.object, record.attrs...)] = encoded
+	}
+	return command
+}
+
+func TestHistoricalPartialIssuanceRemainsReadableTransferableAndClosed(t *testing.T) {
+	cc, ctx, stub, _ := setup(t)
+	registered := command()
+	registered.ApprovedSupply = 100
+	if _, err := invoke(cc, ctx, stub, raw(registered)); err != nil {
+		t.Fatal(err)
+	}
+	historical := seedHistoricalPartialIssuance(t, stub, command().PropertyID, command().IssuerID, 100, 40)
+	state, err := cc.GetIssuanceState(ctx, historical.PropertyID)
+	if err != nil || state.CumulativeIssuedSupply != 40 || state.RemainingIssuanceCapacity != 60 {
+		t.Fatal(state, err)
+	}
+	if _, err := cc.GetIssuanceOperation(ctx, historical.OperationID); err != nil {
+		t.Fatal("historical issuance receipt is unreadable", err)
+	}
+	if balance, err := cc.GetBalance(ctx, historical.PropertyID, command().IssuerID); err != nil || balance.Quantity != 40 {
+		t.Fatal(balance, err)
+	}
+
+	transfer := TransferCommand{1, "70000000-0000-4000-8000-000000000004", historical.PropertyID, command().IssuerID, investorA, 10}
+	stub.txID = "historical-transfer-tx"
+	if _, err := invokeTransfer(cc, ctx, stub, transferJSON(t, transfer)); err != nil {
+		t.Fatal("historical holding is not transferable", err)
+	}
+	if quantity(t, cc, ctx, command().IssuerID) != 30 || quantity(t, cc, ctx, investorA) != 10 {
+		t.Fatal("historical transfer changed the wrong balances")
+	}
+
+	additional := historical
+	additional.OperationID = "50000000-0000-4000-8000-000000000005"
+	additional.Quantity = 60
+	before := ledgerSnapshot(stub)
+	if _, err := invokeIssuance(cc, ctx, stub, issuanceJSON(t, additional)); err == nil {
+		t.Fatal("additional issuance against historical state unexpectedly succeeded")
+	}
+	if !reflect.DeepEqual(before, stub.state) {
+		t.Fatal("additional issuance changed historical state")
+	}
+}
+
 func TestIssuanceStrictCommandValidation(t *testing.T) {
 	good := issuanceJSON(t, issuanceCommand())
 	cases := []struct{ name, body, code string }{
-		{"zero", strings.Replace(good, `"quantity":40`, `"quantity":0`, 1), "INVALID_ARGUMENT"},
-		{"negative", strings.Replace(good, `"quantity":40`, `"quantity":-1`, 1), "INVALID_ARGUMENT"},
-		{"fraction", strings.Replace(good, `"quantity":40`, `"quantity":1.5`, 1), "INVALID_ARGUMENT"},
-		{"decimal", strings.Replace(good, `"quantity":40`, `"quantity":40.0`, 1), "INVALID_ARGUMENT"},
-		{"exponent", strings.Replace(good, `"quantity":40`, `"quantity":4e1`, 1), "INVALID_ARGUMENT"},
-		{"string", strings.Replace(good, `"quantity":40`, `"quantity":"40"`, 1), "INVALID_ARGUMENT"},
-		{"boolean", strings.Replace(good, `"quantity":40`, `"quantity":true`, 1), "INVALID_ARGUMENT"},
-		{"null", strings.Replace(good, `"quantity":40`, `"quantity":null`, 1), "INVALID_ARGUMENT"},
-		{"outside domain", strings.Replace(good, `"quantity":40`, `"quantity":9007199254740992`, 1), "INVALID_ARGUMENT"},
-		{"int64 overflow", strings.Replace(good, `"quantity":40`, `"quantity":9223372036854775808`, 1), "INVALID_ARGUMENT"},
-		{"int64 underflow", strings.Replace(good, `"quantity":40`, `"quantity":-9223372036854775809`, 1), "INVALID_ARGUMENT"},
+		{"zero", strings.Replace(good, `"quantity":100`, `"quantity":0`, 1), "INVALID_ARGUMENT"},
+		{"negative", strings.Replace(good, `"quantity":100`, `"quantity":-1`, 1), "INVALID_ARGUMENT"},
+		{"fraction", strings.Replace(good, `"quantity":100`, `"quantity":1.5`, 1), "INVALID_ARGUMENT"},
+		{"decimal", strings.Replace(good, `"quantity":100`, `"quantity":100.0`, 1), "INVALID_ARGUMENT"},
+		{"exponent", strings.Replace(good, `"quantity":100`, `"quantity":1e2`, 1), "INVALID_ARGUMENT"},
+		{"string", strings.Replace(good, `"quantity":100`, `"quantity":"100"`, 1), "INVALID_ARGUMENT"},
+		{"boolean", strings.Replace(good, `"quantity":100`, `"quantity":true`, 1), "INVALID_ARGUMENT"},
+		{"null", strings.Replace(good, `"quantity":100`, `"quantity":null`, 1), "INVALID_ARGUMENT"},
+		{"outside domain", strings.Replace(good, `"quantity":100`, `"quantity":9007199254740992`, 1), "INVALID_ARGUMENT"},
+		{"int64 overflow", strings.Replace(good, `"quantity":100`, `"quantity":9223372036854775808`, 1), "INVALID_ARGUMENT"},
+		{"int64 underflow", strings.Replace(good, `"quantity":100`, `"quantity":-9223372036854775809`, 1), "INVALID_ARGUMENT"},
 		{"unknown", strings.TrimSuffix(good, "}") + `,"extra":1}`, "INVALID_ARGUMENT"},
 		{"spoof issuer", strings.TrimSuffix(good, "}") + `,"issuer_id":"30000000-0000-4000-8000-000000000002"}`, "INVALID_ARGUMENT"},
-		{"duplicate", strings.TrimSuffix(good, "}") + `,"quantity":40}`, "INVALID_ARGUMENT"},
-		{"escaped duplicate", strings.TrimSuffix(good, "}") + `,"quantit\u0079":40}`, "INVALID_ARGUMENT"},
+		{"duplicate", strings.TrimSuffix(good, "}") + `,"quantity":100}`, "INVALID_ARGUMENT"},
+		{"escaped duplicate", strings.TrimSuffix(good, "}") + `,"quantit\u0079":100}`, "INVALID_ARGUMENT"},
 		{"case", strings.Replace(good, "quantity", "Quantity", 1), "INVALID_ARGUMENT"},
-		{"missing", strings.Replace(good, `,"quantity":40`, "", 1), "INVALID_ARGUMENT"},
+		{"missing", strings.Replace(good, `,"quantity":100`, "", 1), "INVALID_ARGUMENT"},
 		{"trailing", good + " {}", "INVALID_ARGUMENT"},
 		{"array", "[]", "INVALID_ARGUMENT"}, {"empty", "{}", "INVALID_ARGUMENT"}, {"root null", "null", "INVALID_ARGUMENT"},
 		{"invalid UTF8", good + string([]byte{0xff}), "INVALID_ARGUMENT"},
@@ -187,7 +267,7 @@ func TestIssuanceConflictsAndCanonicalReplay(t *testing.T) {
 	c := issuanceCommand()
 	first := mustIssue(t, cc, ctx, stub, c)
 	before, writes := ledgerSnapshot(stub), stub.writes
-	reordered := ` { "quantity":40, "property_id":"` + c.PropertyID + `", "operation_id":"` + c.OperationID + `", "command_version":1 } `
+	reordered := ` { "quantity":100, "property_id":"` + c.PropertyID + `", "operation_id":"` + c.OperationID + `", "command_version":1 } `
 	result, err := invokeIssuance(cc, ctx, stub, reordered)
 	if err != nil || *result != *first || stub.writes != writes {
 		t.Fatal(result, err)
@@ -278,7 +358,7 @@ func TestIssuanceCorruptSupplyAndBalances(t *testing.T) {
 		{"issuance", "cumulative_issued_supply", 101}, {"issuance", "cumulative_issued_supply", int64(math.MaxInt64)},
 		{"issuance", "remaining_issuance_capacity", 59}, {"issuance", "remaining_issuance_capacity", -1},
 		{"balance", "schema_version", 2}, {"balance", "property_id", "bad"}, {"balance", "holder_id", "bad"},
-		{"balance", "quantity", -1}, {"balance", "quantity", 41}, {"balance", "quantity", 101}, {"balance", "quantity", int64(math.MaxInt64)},
+		{"balance", "quantity", -1}, {"balance", "quantity", 101}, {"balance", "quantity", 102}, {"balance", "quantity", int64(math.MaxInt64)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.object+tc.field+reflect.TypeOf(tc.value).String(), func(t *testing.T) {
@@ -413,9 +493,9 @@ func TestIssuanceReceiptConsistency(t *testing.T) {
 			case "result tx":
 				op.Result.TransactionID = "other"
 			case "ahead of state":
-				op.Result.CumulativeIssuedSupply = 41
-				op.Result.IssuerBalance = 41
-				op.Result.RemainingIssuanceCapacity = 59
+				op.Result.CumulativeIssuedSupply = 101
+				op.Result.IssuerBalance = 101
+				op.Result.RemainingIssuanceCapacity = 0
 			}
 			b, err := json.Marshal(op)
 			if err != nil {
@@ -425,7 +505,7 @@ func TestIssuanceReceiptConsistency(t *testing.T) {
 				b = []byte(strings.Replace(string(b), `"result":{`, `"result":{"extra":true,`, 1))
 			}
 			if kind == "nested duplicate" {
-				b = []byte(strings.Replace(string(b), `"result":{`, `"result":{"quantity":40,`, 1))
+				b = []byte(strings.Replace(string(b), `"result":{`, `"result":{"quantity":100,`, 1))
 			}
 			stub.state[k] = b
 			writes := stub.writes
@@ -454,7 +534,7 @@ func TestIssuanceAtomicFailures(t *testing.T) {
 		}
 		for offset := 1; offset <= count; offset++ {
 			t.Run(kind+string(rune('0'+offset)), func(t *testing.T) {
-				for _, prior := range []bool{false, true} {
+				for _, prior := range []bool{false} {
 					cc, ctx, stub, _ := issuanceSetup(t, 100)
 					c := issuanceCommand()
 					if prior {
@@ -486,13 +566,15 @@ func TestIssuanceAtomicFailures(t *testing.T) {
 func TestIssuanceIntegerBoundaries(t *testing.T) {
 	cc, ctx, stub, _ := issuanceSetup(t, maxSupply)
 	c := issuanceCommand()
-	c.Quantity = maxSupply - 1
-	mustIssue(t, cc, ctx, stub, c)
-	c.OperationID = "50000000-0000-4000-8000-000000000002"
-	c.Quantity = 1
+	c.Quantity = maxSupply
 	result := mustIssue(t, cc, ctx, stub, c)
 	if result.CumulativeIssuedSupply != maxSupply || result.IssuerBalance != maxSupply || result.RemainingIssuanceCapacity != 0 {
 		t.Fatal(result)
+	}
+	c.OperationID = "50000000-0000-4000-8000-000000000002"
+	c.Quantity = 1
+	if _, err := invokeIssuance(cc, ctx, stub, issuanceJSON(t, c)); err == nil {
+		t.Fatal("second issuance unexpectedly succeeded")
 	}
 	for _, pair := range [][2]int64{{math.MaxInt64, 1}, {math.MaxInt64 - 1, 2}, {-1, 1}, {0, 0}, {0, -1}, {math.MaxInt64, math.MaxInt64}} {
 		_, err := addQuantity(pair[0], pair[1])
@@ -528,12 +610,13 @@ func TestIssuancePropertyIsolationAndDeterminism(t *testing.T) {
 	issue := issuanceCommand()
 	issue.OperationID = "50000000-0000-4000-8000-000000000002"
 	issue.PropertyID = c.PropertyID
+	issue.Quantity = c.ApprovedSupply
 	result := mustIssue(t, a, ctxA, stubA, issue)
-	if result.IssuerID != c.IssuerID || result.IssuerBalance != 40 || result.RemainingIssuanceCapacity != 10 {
+	if result.IssuerID != c.IssuerID || result.IssuerBalance != 50 || result.RemainingIssuanceCapacity != 0 {
 		t.Fatal(result)
 	}
 	first, err := a.GetBalance(ctxA, command().PropertyID, command().IssuerID)
-	if err != nil || first.Quantity != 40 {
+	if err != nil || first.Quantity != 100 {
 		t.Fatal(first, err)
 	}
 	if failure("ISSUANCE_LIMIT_EXCEEDED").Error() != `{"code":"ISSUANCE_LIMIT_EXCEEDED","message":"Requested issuance exceeds approved supply."}` {

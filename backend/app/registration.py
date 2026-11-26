@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 from app.errors import ApplicationError
+from app.properties.models import Property
 
 STATES = ('CREATED','PREPARED','SUBMISSION_PENDING','SUBMITTED','COMMITTED_VALID','COMMITTED_INVALID','UNKNOWN')
 SIGNER = 'Org1MSP:54690b215edf0e4065332b7b3bd6387dad86f6a36de54b2c49b945309abac59c'
@@ -107,6 +108,16 @@ class RegistrationService:
 
     def prepare(self,command,capability):
         self.authorize(capability);command=validate(command);encoded=json.dumps(command,separators=(',',':'));digest=hashlib.sha256(encoded.encode()).hexdigest()
+        with self.database.sessions() as session:
+            record = session.get(Property, command['property_id'])
+            if record is not None:
+                try:
+                    exact_value = record.proposed_supply * int(command['issue_price_minor'])
+                except (TypeError, ValueError):
+                    raise fail('INVALID_REQUEST') from None
+                if (record.issuer_id != command['issuer_id'] or record.proposed_supply != command['approved_supply']
+                        or record.issue_price_minor != int(command['issue_price_minor']) or record.valuation_minor != exact_value):
+                    raise fail('INVALID_REQUEST')
         # Serialize preparations, never submissions, under a bounded SQLite write lock.
         with self.database.sessions() as session:
             session.connection().exec_driver_sql('BEGIN IMMEDIATE')

@@ -27,6 +27,9 @@ type issuanceMock struct {
 func (m *issuanceMock) Read(_ context.Context, f string, args ...string) ([]byte, error) {
 	m.function = f
 	m.args = args
+	if f == "GetContractInfo" && m.body == nil {
+		return []byte(`{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation","TransferANSH"],"supply_interpretation":"ONE_TIME_FULL_SUPPLY_ISSUANCE"}`), nil
+	}
 	return m.body, m.err
 }
 func (m *issuanceMock) PrepareIssuance(context.Context, IssuanceCommand) (string, []byte, []byte, error) {

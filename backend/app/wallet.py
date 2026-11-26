@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 from app.dependencies import DemoActor, demo_actor, get_session
 from app.errors import ApplicationError, success
+from app.reservations import purchase_reserved_cash
 
 MAX_CASH = 9007199254740991
 
@@ -29,13 +30,15 @@ class DemoCashEntry(Base):
     __table_args__ = (
         UniqueConstraint('investor_id', 'idempotency_key', name='uq_demo_cash_key'),
         UniqueConstraint('loan_id', 'kind', name='uq_demo_cash_loan_kind'),
+        UniqueConstraint('purchase_id', 'kind', name='uq_demo_cash_purchase_kind'),
         CheckConstraint(f'amount_minor > 0 AND amount_minor <= {MAX_CASH}', name='ck_demo_cash_amount'),
         CheckConstraint(f'balance_after_minor >= 0 AND balance_after_minor <= {MAX_CASH}', name='ck_demo_cash_after'),
-        CheckConstraint("kind IN ('DEMO_FUNDS','WITHDRAWAL','DISBURSEMENT','REPAYMENT')", name='ck_demo_cash_kind'),
+        CheckConstraint("kind IN ('DEMO_FUNDS','WITHDRAWAL','DISBURSEMENT','REPAYMENT','PURCHASE_DEBIT','SALE_PROCEEDS')", name='ck_demo_cash_kind'),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     investor_id: Mapped[str] = mapped_column(ForeignKey('demo_cash_accounts.investor_id'), index=True)
     loan_id: Mapped[str | None] = mapped_column(ForeignKey('application_operations.id'), nullable=True)
+    purchase_id: Mapped[str | None] = mapped_column(ForeignKey('purchase_operations.id'), nullable=True)
     kind: Mapped[str] = mapped_column(String(24))
     amount_minor: Mapped[int] = mapped_column(BigInteger)
     balance_after_minor: Mapped[int] = mapped_column(BigInteger)
@@ -46,14 +49,15 @@ class DemoCashEntry(Base):
 
 def entry_data(entry):
     return dict(id=entry.id, kind=entry.kind, amount_minor=str(entry.amount_minor),
-                balance_after_minor=str(entry.balance_after_minor), loan_id=entry.loan_id,
+                balance_after_minor=str(entry.balance_after_minor), loan_id=entry.loan_id, purchase_id=entry.purchase_id,
                 created_at=entry.created_at, currency='INR', simulated=True, status='SIMULATED_COMPLETED')
 
 
-def change(session, investor_id, kind, amount, key, loan_id=None):
+def change(session, investor_id, kind, amount, key, loan_id=None, purchase_id=None):
     if type(amount) is not int or not 0 < amount <= MAX_CASH:
         raise ApplicationError(422, 'INVALID_AMOUNT', 'Demo money amount exceeds the supported integer-paise range.')
-    digest = hashlib.sha256(json.dumps([kind, amount, loan_id], separators=(',', ':')).encode()).hexdigest()
+    digest_payload = [kind, amount, loan_id] if purchase_id is None else [kind, amount, loan_id, purchase_id]
+    digest = hashlib.sha256(json.dumps(digest_payload, separators=(',', ':')).encode()).hexdigest()
     existing = session.scalar(select(DemoCashEntry).where(
         DemoCashEntry.investor_id == investor_id, DemoCashEntry.idempotency_key == key))
     if existing:
@@ -65,14 +69,16 @@ def change(session, investor_id, kind, amount, key, loan_id=None):
         account = DemoCashAccount(investor_id=investor_id, balance_minor=0)
         session.add(account)
         session.flush()
-    delta = amount if kind in {'DEMO_FUNDS', 'DISBURSEMENT'} else -amount
+    delta = amount if kind in {'DEMO_FUNDS', 'DISBURSEMENT', 'SALE_PROCEEDS'} else -amount
+    if delta < 0 and account.balance_minor - purchase_reserved_cash(session, investor_id, purchase_id) < amount:
+        raise ApplicationError(409, 'INSUFFICIENT_AVAILABLE_CASH', 'Reserved purchase cash is not available for this debit.')
     new_balance = account.balance_minor + delta
     if new_balance < 0:
         raise ApplicationError(409, 'INSUFFICIENT_DEMO_FUNDS', 'Add demo funds before this simulated payment.')
     if new_balance > MAX_CASH:
         raise ApplicationError(409, 'WALLET_LIMIT', 'Demo wallet balance limit would be exceeded.')
     account.balance_minor = new_balance
-    entry = DemoCashEntry(id=str(uuid4()), investor_id=investor_id, loan_id=loan_id, kind=kind,
+    entry = DemoCashEntry(id=str(uuid4()), investor_id=investor_id, loan_id=loan_id, purchase_id=purchase_id, kind=kind,
         amount_minor=amount, balance_after_minor=new_balance, idempotency_key=key,
         request_hash=digest, created_at=datetime.now(timezone.utc).isoformat())
     session.add(entry)
@@ -102,7 +108,10 @@ Ready = Depends(get_session)
 def balance(request: Request, actor: Actor):
     with request.app.state.database.sessions() as session:
         account = session.get(DemoCashAccount, actor.user_id)
-        return success(request, dict(investor_id=actor.user_id, balance_minor=str(account.balance_minor if account else 0), currency='INR', simulated=True))
+        total = account.balance_minor if account else 0
+        reserved = purchase_reserved_cash(session, actor.user_id)
+        return success(request, dict(investor_id=actor.user_id, balance_minor=str(total), reserved_minor=str(reserved),
+                                     available_minor=str(max(0, total - reserved)), currency='INR', simulated=True))
 
 
 @router.get('/activity', dependencies=[Ready])

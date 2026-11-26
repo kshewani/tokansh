@@ -13,7 +13,7 @@ import (
 const contractInfoV11 = `{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation"],"supply_interpretation":"LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}`
 
 // Exact nine-function interface in the reviewed local M4.2 chaincode.
-const contractInfoV12 = `{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation","TransferANSH"],"supply_interpretation":"LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}`
+const contractInfoV12 = `{"contract":"tokansh","schema_version":1,"functions":["GetContractInfo","GetRegisteredProperty","GetOperation","RegisterApprovedProperty","IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation","TransferANSH"],"supply_interpretation":"ONE_TIME_FULL_SUPPLY_ISSUANCE"}`
 
 func TestReviewedContractInterfaces(t *testing.T) {
 	for _, body := range []string{contractInfoV12, contractInfoV11, strings.Replace(contractInfoV11, `,"IssueANSH","GetIssuanceState","GetBalance","GetIssuanceOperation"`, "", 1)} {

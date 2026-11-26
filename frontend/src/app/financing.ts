@@ -7,15 +7,15 @@ import {parseEligibility,parseLoan} from '../api/financing';
 import type {FinanceCommand} from '../api/financing';
 import {RequestError} from '../api/client';
 
-export function useFinancing(lenderId='axim-bank'){
+export function useFinancing(propertyId='',lenderId='axim-bank'){
  const {role,mode,backendConfigured,demoSession,session}=useApp(),cache=useQueryClient();
  const userId=session?.user_id||'';
  const sessionLenderId=session?.organization_id||lenderId;
  const enabled=mode==='real'&&backendConfigured&&!!demoSession&&(role==='INVESTOR'||role==='LENDER');
  const loans=useQuery({queryKey:['financing','loans',userId,sessionLenderId],enabled,retry:false,staleTime:0,
   queryFn:async({signal})=>{const value=await request<unknown>('/api/v1/financing/applications'+(role==='LENDER'?'':'?lender_id='+encodeURIComponent(sessionLenderId)),{signal});if(!Array.isArray(value))throw new Error('Invalid financing list');return value.map(parseLoan);}});
- const eligibility=useQuery({queryKey:['financing','eligibility',userId],enabled:enabled&&role==='INVESTOR',retry:false,staleTime:0,
-  queryFn:async({signal})=>parseEligibility(await request<unknown>('/api/v1/financing/eligibility/'+investorDemo.property,{signal}),investorDemo.property,userId)});
+ const eligibility=useQuery({queryKey:['financing','eligibility',userId,propertyId],enabled:enabled&&role==='INVESTOR'&&!!propertyId,retry:false,staleTime:0,
+  queryFn:async({signal})=>parseEligibility(await request<unknown>('/api/v1/financing/eligibility/'+propertyId,{signal}),propertyId,userId)});
  const key=useRef<{body:string;key:string}|null>(null),pending=useRef(false);
  const mutation=useMutation({retry:false,mutationFn:async(args:{command:FinanceCommand}|{id:string;action:string})=>{
   if(pending.current)throw new RequestError(409,'OPERATION_PENDING','A financing operation is in progress.');

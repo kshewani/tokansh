@@ -194,7 +194,7 @@ def test_diagnostic_route_is_admin_only_and_does_not_enable_business_routes(appl
             assert result.json()["data"]["result"][0]["ID"] == "asset1"
             assert result.json()["meta"]["correlation_id"] == "diag-ref"
             assert "transaction_id" not in result.text
-            assert client.post("/api/v1/ansh/issuances", json={}).status_code == 404
+            assert client.post("/api/v1/ansh/issuances", json={}).status_code == 401
     finally:
         gateway.client.close()
 

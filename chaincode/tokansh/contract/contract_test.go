@@ -298,7 +298,7 @@ func TestDeterminismAndContractMetadata(t *testing.T) {
 		t.Fatal("nondeterministic state")
 	}
 	info, err := a.GetContractInfo(ctxA)
-	if err != nil || !reflect.DeepEqual(info.Functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"}) || info.SupplyInterpretation != "LIFETIME_CUMULATIVE_ISSUANCE_CEILING" {
+	if err != nil || !reflect.DeepEqual(info.Functions, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"}) || info.SupplyInterpretation != "ONE_TIME_FULL_SUPPLY_ISSUANCE" {
 		t.Fatal("bad metadata")
 	}
 	if _, err := contractapi.NewChaincode(&SmartContract{}); err != nil {

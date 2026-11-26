@@ -18,6 +18,9 @@ from app.system import router as system_router
 from app.schemas import ErrorEnvelope
 from app.drunix import GatewayAdapter, router as diagnostic_router
 from app.auth import SessionStore, router as auth_router
+from app.issuance import router as issuance_router
+from app.marketplace import router as marketplace_router
+from app.portfolio import router as portfolio_router
 
 logger = logging.getLogger("tokansh")
 
@@ -73,6 +76,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(transfers_router)
     api.include_router(financing_router)
     api.include_router(wallet_router)
+    api.include_router(issuance_router)
+    api.include_router(marketplace_router)
+    api.include_router(portfolio_router)
     app.include_router(api)
     app.include_router(system_router)
     app.include_router(diagnostic_router)
