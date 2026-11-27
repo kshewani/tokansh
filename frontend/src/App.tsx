@@ -19,7 +19,7 @@ import {Distributions,Audit,Intelligence,System} from './pages/Supporting';
 /** UI navigation only. Production identity and authorization belong to Python APIs. */
 function RequireDemoSession(){
  const {demoSession,authStatus}=useApp();
- if(authStatus==='loading')return <main className="flex min-h-screen items-center justify-center bg-[#F4F6F9] text-sm text-slate-500">Validating demo session…</main>;
+ if(authStatus==='loading')return <main className="flex min-h-screen items-center justify-center bg-[#F4F6F9] text-sm text-slate-500">Validating session…</main>;
  return demoSession&&authStatus==='authenticated'?<Outlet/>:<Navigate to="/login" replace/>;
 }
 function Guard({roles,children}:{roles:Role[];children:ReactNode}){
@@ -31,18 +31,17 @@ function Login(){
  const [selectedRole,setSelectedRole]=useState<AuthRole>(role==='LENDER'?'LENDER':'INVESTOR');
  const [username,setUsername]=useState('Meera');
  const [lenderId,setLenderId]=useState('axim-bank');
- const [password,setPassword]=useState('');
+ const [password,setPassword]=useState('TokANSH@123');
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
  const navigate=useNavigate();
  if(demoSession)return <Navigate to={landing(role)} replace/>;
- const selected=roleOptions.find(item=>item.role===selectedRole);
  const lenders=[['axim-bank','Axim Bank'],['real-finance','Real Finance'],['horizon-credit','Horizon Credit']] as const;
  async function enter(event:React.FormEvent<HTMLFormElement>){
   event.preventDefault();
   setError('');setBusy(true);
   try{await login(selectedRole==='INVESTOR'?username:lenderId,password,selectedRole);navigate(landing(selectedRole),{replace:true});}
-  catch(value){setError(value instanceof Error?value.message:'Unable to sign in to the demo workspace.');}
+  catch(value){setError(value instanceof Error?value.message:'Unable to sign in to the workspace.');}
   finally{setBusy(false);}
  }
  return <main className="grid min-h-screen grid-cols-1 bg-[#F4F6F9] lg:grid-cols-[.9fr_1.1fr]">
@@ -53,14 +52,14 @@ function Login(){
     <p className="mt-5 max-w-md text-sm leading-7 text-blue-100/80">A professional workspace for fractional real estate interests, portfolio visibility, issuance, collateral and lifecycle tracking.</p>
     <div className="mt-9 grid gap-4 text-sm text-blue-100/90"><div className="flex items-center gap-3"><Building2 size={18} className="text-blue-200"/> Property and ANSH lifecycle</div><div className="flex items-center gap-3"><ShieldCheck size={18} className="text-blue-200"/> Distinct transaction and ledger states</div><div className="flex items-center gap-3"><LockKeyhole size={18} className="text-blue-200"/> Institution-ready role experiences</div></div>
    </div>
-   <p className="text-xs text-blue-100/60">{mode==='preview'?'Frontend-only UI preview · No real payments or ledger operations':'Connected Mode · DRUNIX marketplace and portfolio'}</p>
+   <p className="text-xs text-blue-100/60">{mode==='preview'?'Illustrative workspace · No real payments or ledger operations':'DRUNIX-backed ownership observations · illustrative financial workflows'}</p>
   </section>
   <section className="flex items-center justify-center px-5 py-9 sm:px-8 lg:p-12">
    <div className="w-full max-w-[470px]">
     <div className="mb-8 flex items-center justify-end gap-2"><button type="button" className="rounded-lg bg-[#102B4E] px-4 py-2 text-xs font-bold text-white" aria-current="page">Login</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-[#102B4E]" onClick={()=>{}}>Register</button></div>
-    <p className="mb-2 text-xs font-bold uppercase tracking-[.14em] text-[#607D9B]">TokANSH / Demo Access</p>
+    <p className="mb-2 text-xs font-bold uppercase tracking-[.14em] text-[#607D9B]">TokANSH / Account Access</p>
     <h2 className="text-2xl font-extrabold text-[#102B4E]">Sign in to your workspace</h2>
-    <p className="mb-7 mt-2 text-sm leading-6 text-slate-500">Select a demonstration account to explore the approved MVP workflows.</p>
+    <p className="mb-7 mt-2 text-sm leading-6 text-slate-500">Choose an account to access the approved investment workflows.</p>
     <Card>
      <form onSubmit={enter}>
       <fieldset className="space-y-3"><legend className="mb-3 text-sm font-bold text-[#102B4E]">Choose an account</legend>
@@ -71,18 +70,15 @@ function Login(){
       </fieldset>
       <div className="mt-5 space-y-4">
        {selectedRole==='INVESTOR'?<label className="block text-sm font-semibold text-[#102B4E]">Investor username<input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-normal outline-none focus:border-[#1769AA]" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Meera or Aarav" autoComplete="username" required/></label>:<label className="block text-sm font-semibold text-[#102B4E]">Lender organization<select className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#1769AA]" value={lenderId} onChange={e=>setLenderId(e.target.value)}>{lenders.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>}
-       <label className="block text-sm font-semibold text-[#102B4E]">Demo password<input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-normal outline-none focus:border-[#1769AA]" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
-      </div>
-      <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-       <strong className="text-[#102B4E]">Selected role: </strong>{selected?.label}
+       <label className="block text-sm font-semibold text-[#102B4E]">Password<input className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-normal outline-none focus:border-[#1769AA]" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
       </div>
       {error&&<p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p>}
       {authError!==null&&authError!==undefined&&!error&&<p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">Your previous session could not be restored. Please sign in again.</p>}
-      <Button type="submit" className="mt-5 w-full" disabled={busy}>{busy?'Signing in…':'Enter demo workspace'} {!busy&&<ArrowRight size={17}/>}</Button>
+      <Button type="submit" className="mt-5 w-full" disabled={busy}>{busy?'Signing in…':'Open workspace'} {!busy&&<ArrowRight size={17}/>}</Button>
      </form>
     </Card>
     <div className="mt-5"><PreviewWarning compact connected={mode==='real'}/></div>
-    <p className="mt-4 text-center text-xs leading-5 text-slate-500">Local demo access · no real lending, payments or bank settlement.</p>
+    <p className="mt-4 text-center text-xs leading-5 text-slate-500">No real lending, payments or bank settlement are performed.</p>
    </div>
   </section>
  </main>;

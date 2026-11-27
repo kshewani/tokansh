@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {NavLink,Outlet,useLocation,useNavigate} from 'react-router-dom';
-import {Activity,BarChart3,BookOpen,Building2,ChevronDown,Compass,FileCheck2,FileClock,HandCoins,Landmark,LayoutDashboard,LogOut,Menu,Shield,ShieldAlert,ShoppingCart,Wallet,X} from 'lucide-react';
+import {Activity,BarChart3,BookOpen,Building2,ChevronDown,Compass,FileCheck2,FileClock,HandCoins,Landmark,LayoutDashboard,LogOut,Menu,Shield,ShoppingCart,Wallet,X} from 'lucide-react';
 import type {LucideIcon} from 'lucide-react';
 import type {Role} from '../demo/scenario';
 import {phases} from '../demo/scenario';
@@ -14,7 +14,7 @@ const nav:MenuItem[]=[
  {to:'/registry',label:'Create Property',icon:Building2,roles:['INVESTOR'],section:'Invest'},
  {to:'/portfolio',label:'My Portfolio',icon:Wallet,roles:['INVESTOR'],section:'Invest'},
  {to:'/collateral',label:'Borrow Against ANSH',icon:Landmark,roles:['INVESTOR'],section:'Liquidity'},
- {to:'/wallet',label:'Demo Cash Wallet',icon:HandCoins,roles:['INVESTOR'],section:'Liquidity'},
+ {to:'/wallet',label:'Cash Wallet',icon:HandCoins,roles:['INVESTOR'],section:'Liquidity'},
  {to:'/lending',label:'Application Review',icon:Landmark,roles:['LENDER'],section:'Institution'},
  {to:'/transactions',label:'Activity',icon:FileClock,roles:['INVESTOR','LENDER'],section:'Insights'},
  {to:'/intelligence',label:'Asset Research',icon:BarChart3,roles:['INVESTOR'],section:'Insights'},
@@ -48,9 +48,7 @@ export function Shell(){
       <NavLink to={item.to} onClick={()=>setOpen(false)} className={({isActive})=>'mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium '+(isActive?'bg-[#3478F6] text-white':'text-blue-100/80 hover:bg-white/10 hover:text-white')} title={collapsed?item.label:undefined}><Icon className="shrink-0" size={18}/>{!collapsed&&item.label}</NavLink></div>;
     })}
    </div>
-   <div className="mt-auto border-t border-white/10 p-3">
-    {!collapsed&&<div className="mb-3 rounded-lg border border-blue-200/20 bg-white/5 p-3"><div className="flex items-center gap-2 text-xs font-bold text-blue-100"><ShieldAlert size={15}/> {mode==='preview'?'Preview Mode':'Connected Mode'}</div><p className="mt-1 text-[11px] leading-5 text-blue-100/70">{mode==='preview'?'Backend and DRUNIX evidence unavailable. No real ANSH state changes.':'DRUNIX ownership; financing, REITs, income and research are labeled demo illustrations.'}</p></div>}
-    <button className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-blue-100 hover:bg-white/10" onClick={handleLogout} title="Log out or choose another demo account"><LogOut size={17}/>{!collapsed&&'Logout / Switch account'}</button>
+   <div className="mt-auto p-3">
     <button className="hidden w-full items-center justify-center rounded-lg py-2 text-blue-100 hover:bg-white/10 lg:flex" onClick={()=>setCollapsed(x=>!x)} aria-label={collapsed?'Expand sidebar':'Collapse sidebar'}><ChevronDown className={collapsed?'rotate-90':'-rotate-90'} size={16}/></button>
    </div>
   </aside>
@@ -59,8 +57,8 @@ export function Shell(){
     <div className="flex items-center gap-3"><button className="rounded-lg p-2 text-[#102B4E] lg:hidden" ref={menuButton} aria-controls="workspace-navigation" aria-expanded={open} aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={22}/></button><div><p className="text-[10px] uppercase tracking-[.1em] text-slate-400">TokANSH / {role==='ISSUER'?'Issuer':role==='INVESTOR'?'Investor':'Lender'}</p><strong className="text-sm text-[#102B4E]">{title}</strong></div></div>
     <div className="flex flex-wrap items-center gap-2.5">
      {mode==='preview'?<Status value={backendReady?'PENDING':'UNAVAILABLE'}/>:<span className="text-xs text-slate-500">Commit evidence is shown per operation</span>}
-     <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700"><span className="hidden font-medium text-slate-500 sm:inline">Signed in as</span><strong>{session?.display_name||'Demo user'}</strong>{role==='LENDER'&&session?.organization_id&&<span className="hidden text-slate-500 md:inline">· {session.organization_id}</span>}</div>
-     <button className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#102B4E] hover:bg-slate-50" onClick={handleLogout} title="Log out and select a different demo account"><LogOut size={15}/> <span className="hidden sm:inline">Logout</span></button>
+     <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700"><span className="hidden font-medium text-slate-500 sm:inline">Signed in as</span><strong>{session?.display_name||'Account'}</strong>{role==='LENDER'&&session?.organization_id&&<span className="hidden text-slate-500 md:inline">· {session.organization_id}</span>}</div>
+     <button className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#102B4E] hover:bg-slate-50" onClick={handleLogout} title="Sign out and choose another account"><LogOut size={15}/> <span className="hidden sm:inline">Logout</span></button>
      {mode==='preview'&&<label className="flex items-center gap-1.5 text-xs text-slate-500">Scenario <select aria-label="Preview scenario stage" className="max-w-[175px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-[#102B4E]" value={phase} onChange={e=>setPhase(e.target.value as typeof phase)}>{phases.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>}
     </div>
    </header>
@@ -68,7 +66,7 @@ export function Shell(){
     <PreviewWarning compact connected={mode==='real'}/>
     {message&&<div role="status" className={'mt-4 flex justify-between gap-3 rounded-lg border p-3 text-sm '+(message.kind==='error'?'border-red-200 bg-red-50 text-red-800':'border-blue-200 bg-blue-50 text-blue-900')}><span>{message.text}</span><button onClick={()=>notify(null)} aria-label="Dismiss notification"><X size={16}/></button></div>}
     <div className="page-enter mt-6 min-w-0"><ConnectedBoundary mode={mode} path={location.pathname} title={title}><Outlet/></ConnectedBoundary></div>
-    <footer className="mt-9 flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-5 text-[11px] text-slate-400"><span>TokANSH · DRUNIX Hackathon 2026</span><span>{mode==='preview'?'UI preview only · No actual property title, payment or DRUNIX commitment':'DRUNIX ownership · demo financing & cash'}</span></footer>
+    <footer className="mt-9 flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-5 text-[11px] text-slate-400"><span>TokANSH · DRUNIX Hackathon 2026</span><span>{mode==='preview'?'Illustrative workspace · No actual property title, payment or DRUNIX commitment':'DRUNIX ownership · indicative financing and cash workflows'}</span></footer>
    </main>
   </div>
  </div>;

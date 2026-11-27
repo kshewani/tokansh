@@ -20,8 +20,8 @@ export function SystemStatusView({mode,configured,data,loading,error,retry}:Syst
    <Metric label={mode==='preview'?'Last successful ledger operation':'Last ledger operation reported by backend'} value={lastOperation?.trim()?lastOperation:'Not available'} description="A reported reference alone is not proof of successful commitment"/>
   </div>
   <Card className="mt-5" title="Infrastructure components" description="No network secrets, certificates or internal topology details exposed">
-   {mode==='preview'?<p className="mb-4 text-sm text-slate-500">Preview Mode: no backend status request is made.</p>:
-    !configured?<p role="alert" className="mb-4 text-sm text-red-700">Connected Mode is selected, but the API URL is missing. Set VITE_API_BASE_URL and reload the application.</p>:
+   {mode==='preview'?<p className="mb-4 text-sm text-slate-500">Service status is not requested for this workspace.</p>:
+    !configured?<p role="alert" className="mb-4 text-sm text-red-700">Live API access is configured but the API URL is missing. Set VITE_API_BASE_URL and reload the application.</p>:
     <div className="mb-4 space-y-3">
      {loading&&<p role="status" className="text-sm text-slate-500">Checking API status…</p>}
      {!!error&&<p role="alert" className="text-sm text-red-700">{errorFeedback(error)}</p>}
@@ -32,6 +32,6 @@ export function SystemStatusView({mode,configured,data,loading,error,retry}:Syst
     {observed?.components.filter(c=>!components.some(name=>name.toLowerCase()===c.name.toLowerCase())).map(c=><tr key={c.name}><td className="font-semibold">{c.name}</td><td><Status value={c.status}/></td><td>Reported by Python system API</td></tr>)}
    </tbody></table></div>
   </Card>
-  <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4 text-xs leading-6 text-blue-900"><strong>Integration boundary:</strong> The frontend checks <code>GET /api/v1/system/status</code> in Connected Mode when an API URL is configured. A healthy FastAPI response does not establish DRUNIX transaction capability or commitment.</div>
+  <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4 text-xs leading-6 text-blue-900"><strong>Integration boundary:</strong> The frontend checks <code>GET /api/v1/system/status</code> when an API URL is configured. A healthy FastAPI response does not establish DRUNIX transaction capability or commitment.</div>
  </>;
 }
