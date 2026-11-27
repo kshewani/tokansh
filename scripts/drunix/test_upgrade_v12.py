@@ -90,10 +90,12 @@ class UpgradeV12Tests(unittest.TestCase):
         self.assertEqual(args[args.index('--signature-policy')+1],v.POLICY)
         self.assertEqual(v.package_label(),'tokansh_1.2')
         self.assertIn('version 1.2 sequence-3',v.APPROVAL_ACK)
+        self.assertEqual(v.SOURCE_SUPPLY_INTERPRETATION,v.LIFETIME_SUPPLY)
+        self.assertEqual(v.TARGET_SUPPLY_INTERPRETATION,v.LIFETIME_SUPPLY)
         v.snapshot(self.b,self.b['deployment_id'])
         self.assertEqual(v.FUNCTIONS,legacy.u.M4_FUNCTIONS)
         self.assertEqual(v.M4_FUNCTIONS,v.FUNCTIONS+['TransferANSH'])
-        with self.assertRaises(v.Stop):v.info(self.b['organizations']['1']['info'],True)
+        with self.assertRaises(v.Stop):v.info(self.b['organizations']['1']['info'],'target')
         self.assertEqual(legacy.u.PARAMS['sequence'],2) # legacy default untouched
 
     def test_capture_reads_both_orgs_and_issuance_preserves(self):
@@ -130,7 +132,7 @@ class UpgradeV12Tests(unittest.TestCase):
             row=self.runner.captured['organizations'][org]
             row['definitions']['tokansh']=legacy.definition('1.2',3)
             row['info']['functions']=list(v.M4_FUNCTIONS)
-            row['info']['supply_interpretation']=v.ONE_TIME_SUPPLY
+            row['info']['supply_interpretation']=v.LIFETIME_SUPPLY
             row['channel']['height']+=3
             self.runner.installed_rows[org]=[dict(package_id=self.package,label='tokansh_1.2')]
         self.execute('verify')

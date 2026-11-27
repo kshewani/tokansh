@@ -99,17 +99,17 @@ def configure_m42():
                          source_functions=ISSUANCE_FUNCTIONS,
                          target_functions=TRANSFER_FUNCTIONS,
                          source_supply=LIFETIME_SUPPLY,
-                         target_supply=ONE_TIME_SUPPLY,
+                         target_supply=LIFETIME_SUPPLY,
                          pin_issuance=True)
 
 
 def configure_next_transition(current_version, current_sequence, version, sequence,
                               channel='mychannel', chaincode='tokansh', policy=POLICY):
-    """Configure a later transition from the transfer-capable contract."""
+    """Configure a later transition from the v1.2 lifetime-policy contract."""
     configure_transition(current_version, current_sequence, version, sequence,
                          source_functions=TRANSFER_FUNCTIONS,
                          target_functions=TRANSFER_FUNCTIONS,
-                         source_supply=ONE_TIME_SUPPLY,
+                         source_supply=LIFETIME_SUPPLY,
                          target_supply=ONE_TIME_SUPPLY,
                          channel=channel, chaincode=chaincode, policy=policy)
 
@@ -401,12 +401,26 @@ def assets(value):
         require(row['ID'] not in seen); seen.add(row['ID'])
     return sorted(value, key=lambda a: a['ID'])
 
-def info(value, upgraded):
-    fields(value, ['contract', 'schema_version', 'functions', 'supply_interpretation'])
-    require(value['contract'] == PARAMS['chaincode'] and type(value['schema_version']) is int and value['schema_version'] == 1
-            and value['functions'] == (M4_FUNCTIONS if upgraded else FUNCTIONS)
-            and value['supply_interpretation'] == (TARGET_SUPPLY_INTERPRETATION if upgraded else SOURCE_SUPPLY_INTERPRETATION),
-            'Unexpected contract metadata')
+def metadata_profile(profile):
+    require(profile in ('source', 'target'), 'Unknown contract metadata profile')
+    return {
+        'contract': PARAMS['chaincode'],
+        'schema_version': 1,
+        'functions': FUNCTIONS if profile == 'source' else M4_FUNCTIONS,
+        'supply_interpretation': SOURCE_SUPPLY_INTERPRETATION if profile == 'source' else TARGET_SUPPLY_INTERPRETATION,
+    }
+
+
+def info(value, profile):
+    expected = metadata_profile(profile)
+    if not isinstance(value, dict):
+        raise Stop(f'Contract metadata mismatch for object: expected mapping, observed {type(value).__name__}')
+    if set(value) != set(expected):
+        raise Stop(f'Contract metadata fields mismatch: expected {sorted(expected)}, observed {sorted(value)}')
+    for field, wanted in expected.items():
+        observed = value[field]
+        if type(observed) is not type(wanted) or observed != wanted:
+            raise Stop(f'Contract metadata mismatch for {field}: expected {wanted!r}, observed {observed!r}')
 
 def records(prop, op, property_id, operation_id):
     fields(prop, ['schema_version', 'property_id', 'issuer_id', 'approval_reference', 'approval_digest',
@@ -451,7 +465,7 @@ def snapshot(value, deployment_id):
         defs = definitions({'chaincode_definitions': list(org['definitions'].values())})
         require(defs == org['definitions'])
         expected_definition(defs[PARAMS['chaincode']], PARAMS['current_version'], PARAMS['current_sequence'])
-        assets(org['basic']); info(org['info'], False)
+        assets(org['basic']); info(org['info'], 'source')
         records(org['property'], org['operation'], value['property_id'], value['operation_id'])
         approval(org[APPROVAL_FIELD], PARAMS['current_version'], PARAMS['current_sequence'])
         if M42: issuance_records(org)
@@ -476,7 +490,7 @@ def preserve(baseline, actual, upgraded):
         require(end['height'] >= start['height'], 'Channel height regressed')
         if end['height'] == start['height']: require(end == start, 'Hashes changed at baseline height')
         if upgraded: require(end['height'] > start['height'], 'Upgrade must advance ledger height')
-        info(new['info'], upgraded)
+        info(new['info'], 'target' if upgraded else 'source')
 
 class Runner:
     def __init__(self, network, release):

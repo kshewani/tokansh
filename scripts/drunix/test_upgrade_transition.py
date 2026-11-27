@@ -23,14 +23,39 @@ class TransitionProfileTests(unittest.TestCase):
         self.assertEqual(u.PARAMS['sequence'], 4)
         self.assertEqual(u.FUNCTIONS, u.TRANSFER_FUNCTIONS)
         self.assertEqual(u.M4_FUNCTIONS, u.TRANSFER_FUNCTIONS)
-        self.assertEqual(u.SOURCE_SUPPLY_INTERPRETATION, u.ONE_TIME_SUPPLY)
+        self.assertEqual(u.SOURCE_SUPPLY_INTERPRETATION, u.LIFETIME_SUPPLY)
         self.assertEqual(u.TARGET_SUPPLY_INTERPRETATION, u.ONE_TIME_SUPPLY)
         source = dict(contract='tokansh', schema_version=1, functions=u.FUNCTIONS,
-                      supply_interpretation=u.ONE_TIME_SUPPLY)
+                      supply_interpretation=u.LIFETIME_SUPPLY)
         target = dict(contract='tokansh', schema_version=1, functions=u.M4_FUNCTIONS,
                       supply_interpretation=u.ONE_TIME_SUPPLY)
-        u.info(source, False)
-        u.info(target, True)
+        u.info(source, 'source')
+        u.info(target, 'target')
+
+    def test_captured_v12_metadata_is_accepted_as_source(self):
+        u = workflow()
+        u.configure_next_transition('1.2', 3, '1.3', 4)
+        captured = {
+            'contract': 'tokansh',
+            'schema_version': 1,
+            'functions': list(u.TRANSFER_FUNCTIONS),
+            'supply_interpretation': u.LIFETIME_SUPPLY,
+        }
+        u.info(captured, 'source')
+
+    def test_target_profile_is_explicit_and_not_reused_for_source(self):
+        u = workflow()
+        u.configure_next_transition('1.2', 3, '1.3', 4)
+        source = dict(contract='tokansh', schema_version=1,
+                      functions=list(u.TRANSFER_FUNCTIONS),
+                      supply_interpretation=u.LIFETIME_SUPPLY)
+        target = dict(contract='tokansh', schema_version=1,
+                      functions=list(u.TRANSFER_FUNCTIONS),
+                      supply_interpretation=u.ONE_TIME_SUPPLY)
+        u.info(source, 'source')
+        u.info(target, 'target')
+        with self.assertRaisesRegex(u.Stop, 'supply_interpretation'):
+            u.info(target, 'source')
 
     def test_invalid_sequence_transitions_fail_closed(self):
         for current, target in ((3, 3), (3, 5), (0, 1), (True, 2)):
@@ -51,7 +76,7 @@ class TransitionProfileTests(unittest.TestCase):
                           functions=copy.deepcopy(u.FUNCTIONS),
                           supply_interpretation=u.LIFETIME_SUPPLY)
         with self.assertRaises(u.Stop):
-            u.info(historical, True)
+            u.info(historical, 'target')
 
     def test_next_transition_preserves_arbitrary_existing_issuance_observations(self):
         u = workflow()
@@ -87,7 +112,44 @@ class TransitionProfileTests(unittest.TestCase):
                           functions=list(u.M4_FUNCTIONS) + ['Unexpected'],
                           supply_interpretation=u.ONE_TIME_SUPPLY)
         with self.assertRaises(u.Stop):
-            u.info(malformed, True)
+            u.info(malformed, 'target')
+
+    def test_target_metadata_rejects_shape_order_and_policy_mismatches(self):
+        u = workflow()
+        u.configure_next_transition('1.2', 3, '1.3', 4)
+        valid = {
+            'contract': 'tokansh',
+            'schema_version': 1,
+            'functions': list(u.TRANSFER_FUNCTIONS),
+            'supply_interpretation': u.ONE_TIME_SUPPLY,
+        }
+        invalid = []
+        invalid.append({**valid, 'contract': 'basic'})
+        invalid.append({**valid, 'schema_version': 2})
+        invalid.append({**valid, 'functions': list(u.TRANSFER_FUNCTIONS[:-1])})
+        invalid.append({**valid, 'functions': list(u.TRANSFER_FUNCTIONS) + ['Unexpected']})
+        reordered = list(u.TRANSFER_FUNCTIONS)
+        reordered[0], reordered[1] = reordered[1], reordered[0]
+        invalid.append({**valid, 'functions': reordered})
+        invalid.append({**valid, 'supply_interpretation': 'UNSUPPORTED'})
+        for candidate in invalid:
+            with self.subTest(candidate=candidate), self.assertRaises(u.Stop):
+                u.info(candidate, 'target')
+
+    def test_schema_version_requires_exact_integer_type(self):
+        u = workflow()
+        u.configure_next_transition('1.2', 3, '1.3', 4)
+        valid = {
+            'contract': 'tokansh',
+            'schema_version': 1,
+            'functions': list(u.TRANSFER_FUNCTIONS),
+            'supply_interpretation': u.ONE_TIME_SUPPLY,
+        }
+        u.info(valid, 'target')
+        for schema_version in (True, 1.0, '1'):
+            candidate = {**valid, 'schema_version': schema_version}
+            with self.subTest(schema_version=repr(schema_version)), self.assertRaisesRegex(u.Stop, 'schema_version'):
+                u.info(candidate, 'target')
 
 
 if __name__ == '__main__':
