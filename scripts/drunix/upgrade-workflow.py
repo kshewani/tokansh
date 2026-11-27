@@ -1,4 +1,4 @@
-"""M4.1 local-only upgrade: one authorized phase, strict inspection, no retries.
+"""Guarded local-only TokANSH upgrade: one authorized phase, strict inspection, no retries.
 
 Approval absence is never inferred. Native one-shot desired-state approval needs
 an independently bound replacement/repair acknowledgement. No business invocations.
@@ -30,13 +30,21 @@ def module(name):
 checks = module('deployment-checks')
 inspect = module('lifecycle-inspect')
 POLICY = "AND('Org1MSP.peer','Org2MSP.peer')"
-FUNCTIONS = ['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty']
-M4_FUNCTIONS = FUNCTIONS + ['IssueANSH', 'GetIssuanceState', 'GetBalance', 'GetIssuanceOperation']
+LIFETIME_SUPPLY = 'LIFETIME_CUMULATIVE_ISSUANCE_CEILING'
+ONE_TIME_SUPPLY = 'ONE_TIME_FULL_SUPPLY_ISSUANCE'
+BASE_FUNCTIONS = ['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty']
+ISSUANCE_FUNCTIONS = BASE_FUNCTIONS + ['IssueANSH', 'GetIssuanceState', 'GetBalance', 'GetIssuanceOperation']
+TRANSFER_FUNCTIONS = ISSUANCE_FUNCTIONS + ['TransferANSH']
+FUNCTIONS = list(BASE_FUNCTIONS)
+M4_FUNCTIONS = list(ISSUANCE_FUNCTIONS)
 PHASES = ['package', 'preflight', 'install-org1', 'install-org2', 'approve-org1',
           'approve-org2', 'verify-approval-org1', 'verify-approval-org2', 'readiness', 'commit', 'verify']
 PARAMS = dict(channel='mychannel', chaincode='tokansh', current_version='1.0',
               current_sequence=1, version='1.1', sequence=2, policy=POLICY, init_required=False)
 M42 = False
+SOURCE_SUPPLY_INTERPRETATION = LIFETIME_SUPPLY
+TARGET_SUPPLY_INTERPRETATION = LIFETIME_SUPPLY
+PINNED_SUPERVISED_ISSUANCE = False
 APPROVAL_FIELD = 'approval_v1'
 
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
@@ -45,23 +53,68 @@ APPROVAL_ACK = ('I authorize one attempt to establish the reviewed TokANSH versi
 MAINTENANCE_ACK = ('I confirm an operator-controlled maintenance window on mychannel with no competing '
                    'lifecycle operators or known in-flight lifecycle operations.')
 
-def configure_m42():
-    """Second fixed reviewed transition, not an arbitrary deployment framework.
-
-    The legacy entry point remains 1.0/1 -> 1.1/2. A new release/context/package
-    and newly reviewed issuance-aware baseline are mandatory for this profile.
-    """
-    global M42, APPROVAL_FIELD, FUNCTIONS, M4_FUNCTIONS, APPROVAL_ACK
-    require(not M42, 'M4.2 profile already selected')
+def configure_transition(current_version, current_sequence, version, sequence,
+                         source_functions=None, target_functions=None,
+                         source_supply=LIFETIME_SUPPLY, target_supply=ONE_TIME_SUPPLY,
+                         channel='mychannel', chaincode='tokansh', policy=POLICY,
+                         pin_issuance=False):
+    """Select one explicit, reviewed in-place lifecycle transition."""
+    global M42, APPROVAL_FIELD, FUNCTIONS, M4_FUNCTIONS, APPROVAL_ACK, MAINTENANCE_ACK
+    global SOURCE_SUPPLY_INTERPRETATION, TARGET_SUPPLY_INTERPRETATION, PINNED_SUPERVISED_ISSUANCE
+    require(not M42, 'An upgrade profile is already selected')
+    require(re.fullmatch(r'[0-9]+\.[0-9]+', str(current_version)) is not None
+            and re.fullmatch(r'[0-9]+\.[0-9]+', str(version)) is not None)
+    require(type(current_sequence) is int and type(sequence) is int
+            and current_sequence >= 1 and sequence == current_sequence + 1,
+            'Target sequence must be exactly current sequence plus one')
+    source_functions = list(source_functions or TRANSFER_FUNCTIONS)
+    target_functions = list(target_functions or source_functions)
+    require(source_functions and target_functions
+            and source_functions[:len(BASE_FUNCTIONS)] == BASE_FUNCTIONS
+            and target_functions[:len(BASE_FUNCTIONS)] == BASE_FUNCTIONS)
+    require(source_supply in (LIFETIME_SUPPLY, ONE_TIME_SUPPLY)
+            and target_supply in (LIFETIME_SUPPLY, ONE_TIME_SUPPLY))
+    require(isinstance(channel, str) and channel and chaincode == 'tokansh'
+            and policy == POLICY)
     M42 = True
     APPROVAL_FIELD = 'approval_previous'
-    FUNCTIONS = M4_FUNCTIONS
-    M4_FUNCTIONS = FUNCTIONS + ['TransferANSH']
-    PARAMS.update(current_version='1.1', current_sequence=2, version='1.2', sequence=3)
-    APPROVAL_ACK = APPROVAL_ACK.replace('version 1.1 sequence-2', 'version 1.2 sequence-3')
+    FUNCTIONS = source_functions
+    M4_FUNCTIONS = target_functions
+    SOURCE_SUPPLY_INTERPRETATION = source_supply
+    TARGET_SUPPLY_INTERPRETATION = target_supply
+    PINNED_SUPERVISED_ISSUANCE = pin_issuance
+    PARAMS.update(channel=channel, chaincode=chaincode, policy=policy,
+                  current_version=str(current_version), current_sequence=current_sequence,
+                  version=str(version), sequence=sequence)
+    APPROVAL_ACK = (f'I authorize one attempt to establish the reviewed TokANSH version {version} '
+                    f'sequence-{sequence} approval for this organization, including replacement or repair '
+                    'of an existing uncommitted approval.')
+    MAINTENANCE_ACK = (f'I confirm an operator-controlled maintenance window on {channel} with no competing '
+                       'lifecycle operators or known in-flight lifecycle operations.')
+
+
+def configure_m42():
+    """Backward-compatible M4.2 transition: 1.1/2 -> 1.2/3."""
+    configure_transition('1.1', 2, '1.2', 3,
+                         source_functions=ISSUANCE_FUNCTIONS,
+                         target_functions=TRANSFER_FUNCTIONS,
+                         source_supply=LIFETIME_SUPPLY,
+                         target_supply=ONE_TIME_SUPPLY,
+                         pin_issuance=True)
+
+
+def configure_next_transition(current_version, current_sequence, version, sequence,
+                              channel='mychannel', chaincode='tokansh', policy=POLICY):
+    """Configure a later transition from the transfer-capable contract."""
+    configure_transition(current_version, current_sequence, version, sequence,
+                         source_functions=TRANSFER_FUNCTIONS,
+                         target_functions=TRANSFER_FUNCTIONS,
+                         source_supply=ONE_TIME_SUPPLY,
+                         target_supply=ONE_TIME_SUPPLY,
+                         channel=channel, chaincode=chaincode, policy=policy)
 
 def package_label():
-    return 'tokansh_' + PARAMS['version']
+    return PARAMS['chaincode'] + '_' + PARAMS['version']
 
 ISSUANCE_ID = '97a0703a-1d08-482d-ae1c-90f24a9c5e48'
 ISSUANCE_TX = 'acae76b82c30a53372127bd73f15e511fb9795fbd142a970d1ff27e0c7f4a59a'
@@ -69,8 +122,36 @@ ISSUER_ID = '00000000-0000-4000-8000-000000000002'
 ISSUANCE_FIELDS = ('issuance', 'issuer_balance', 'issuance_operation')
 
 def issuance_records(row):
-    """Pin the supervised first issuance; these records must survive unchanged."""
+    """Validate issuance observations and optionally pin the reviewed demo record."""
     prop = row['property']; receipt = row['issuance_operation']
+    if not PINNED_SUPERVISED_ISSUANCE:
+        state = row['issuance']; balance = row['issuer_balance']
+        fields(state, ['schema_version', 'property_id', 'issuer_id', 'approved_supply',
+                       'cumulative_issued_supply', 'remaining_issuance_capacity'])
+        fields(balance, ['schema_version', 'property_id', 'holder_id', 'quantity'])
+        fields(receipt, ['schema_version', 'operation_id', 'authorizing_msp', 'authorizing_principal',
+                         'function', 'request_digest', 'property_id', 'issuer_id', 'quantity',
+                         'original_transaction_id', 'result'])
+        identifier(prop['property_id']); identifier(prop['issuer_id'])
+        require(state['schema_version'] == 1 and state['property_id'] == prop['property_id']
+                and state['issuer_id'] == prop['issuer_id']
+                and type(state['approved_supply']) is int and state['approved_supply'] >= 1
+                and type(state['cumulative_issued_supply']) is int
+                and 0 <= state['cumulative_issued_supply'] <= state['approved_supply']
+                and type(state['remaining_issuance_capacity']) is int
+                and state['remaining_issuance_capacity'] == state['approved_supply'] - state['cumulative_issued_supply'],
+                'Invalid issuance state')
+        require(balance['schema_version'] == 1 and balance['property_id'] == prop['property_id']
+                and balance['holder_id'] == prop['issuer_id'] and type(balance['quantity']) is int
+                and 0 <= balance['quantity'] <= state['cumulative_issued_supply'], 'Invalid issuer balance')
+        identifier(receipt['operation_id']); sha(receipt['request_digest'])
+        require(receipt['schema_version'] == 1 and receipt['authorizing_msp'] == 'Org1MSP'
+                and isinstance(receipt['authorizing_principal'], str) and receipt['authorizing_principal']
+                and receipt['function'] == 'IssueANSH' and receipt['property_id'] == prop['property_id']
+                and receipt['issuer_id'] == prop['issuer_id'] and type(receipt['quantity']) is int
+                and receipt['quantity'] >= 1 and isinstance(receipt['original_transaction_id'], str)
+                and receipt['original_transaction_id'], 'Invalid issuance operation')
+        return
     pid = 'f6169750-4676-4e99-887f-2bc5471bd518'
     require(prop['property_id'] == pid and prop['issuer_id'] == ISSUER_ID
             and prop['approved_supply'] == 100
@@ -279,12 +360,12 @@ def definitions(value):
         inspect.definition(row, True)  # strict shape/types, not its v1-only match result
         require(row['name'] not in result, 'Duplicate chaincode definition')
         result[row['name']] = {**row, 'init_required': row.get('init_required', False)}
-    require('basic' in result and 'tokansh' in result, 'Required committed definition missing')
+    require('basic' in result and PARAMS['chaincode'] in result, 'Required committed definition missing')
     return result
 
 def expected_definition(value, version, sequence):
     inspect.definition(value, True)
-    expected = dict(name='tokansh', version=version, sequence=sequence,
+    expected = dict(name=PARAMS['chaincode'], version=version, sequence=sequence,
                     endorsement_plugin='escc', validation_plugin='vscc',
                     validation_parameter=inspect.POLICY, collections={}, init_required=False)
     require({**value, 'init_required': value.get('init_required', False)} == expected,
@@ -298,7 +379,7 @@ def approval(value, version, sequence, package_id=None):
     package = source['Type']['LocalPackage']['package_id']
     inspect.package(package)
     row = {k: v for k, v in value.items() if k != 'source'}
-    expected_definition(dict(row, name='tokansh'), version, sequence)
+    expected_definition(dict(row, name=PARAMS['chaincode']), version, sequence)
     require(package_id is None or package == package_id, 'Conflicting approval package')
     return {**value, 'init_required': value.get('init_required', False)}
 
@@ -322,9 +403,10 @@ def assets(value):
 
 def info(value, upgraded):
     fields(value, ['contract', 'schema_version', 'functions', 'supply_interpretation'])
-    require(value['contract'] == 'tokansh' and type(value['schema_version']) is int and value['schema_version'] == 1
+    require(value['contract'] == PARAMS['chaincode'] and type(value['schema_version']) is int and value['schema_version'] == 1
             and value['functions'] == (M4_FUNCTIONS if upgraded else FUNCTIONS)
-            and value['supply_interpretation'] == 'LIFETIME_CUMULATIVE_ISSUANCE_CEILING', 'Unexpected contract metadata')
+            and value['supply_interpretation'] == (TARGET_SUPPLY_INTERPRETATION if upgraded else SOURCE_SUPPLY_INTERPRETATION),
+            'Unexpected contract metadata')
 
 def records(prop, op, property_id, operation_id):
     fields(prop, ['schema_version', 'property_id', 'issuer_id', 'approval_reference', 'approval_digest',
@@ -358,7 +440,7 @@ def channel(value):
 def snapshot(value, deployment_id):
     fields(value, ['schema_version', 'deployment_id', 'channel', 'property_id', 'operation_id', 'cp_certificate_sha256', 'organizations'])
     require(type(value['schema_version']) is int and value['schema_version'] == 1
-            and value['deployment_id'] == deployment_id and value['channel'] == 'mychannel')
+            and value['deployment_id'] == deployment_id and value['channel'] == PARAMS['channel'])
     identifier(value['property_id']); identifier(value['operation_id'])
     fields(value['cp_certificate_sha256'], ['Org1MSP', 'Org2MSP'])
     for pin in value['cp_certificate_sha256'].values(): sha(pin)
@@ -368,7 +450,7 @@ def snapshot(value, deployment_id):
         channel(org['channel'])
         defs = definitions({'chaincode_definitions': list(org['definitions'].values())})
         require(defs == org['definitions'])
-        expected_definition(defs['tokansh'], PARAMS['current_version'], PARAMS['current_sequence'])
+        expected_definition(defs[PARAMS['chaincode']], PARAMS['current_version'], PARAMS['current_sequence'])
         assets(org['basic']); info(org['info'], False)
         records(org['property'], org['operation'], value['property_id'], value['operation_id'])
         approval(org[APPROVAL_FIELD], PARAMS['current_version'], PARAMS['current_sequence'])
@@ -379,7 +461,7 @@ def snapshot(value, deployment_id):
     return value
 
 def preserve(baseline, actual, upgraded):
-    expected_definition(actual['organizations']['1']['definitions']['tokansh'], PARAMS['version'] if upgraded else PARAMS['current_version'], PARAMS['sequence'] if upgraded else PARAMS['current_sequence'])
+    expected_definition(actual['organizations']['1']['definitions'][PARAMS['chaincode']], PARAMS['version'] if upgraded else PARAMS['current_version'], PARAMS['sequence'] if upgraded else PARAMS['current_sequence'])
     a, b = actual['organizations'].values()
     for field in ('channel', 'definitions', 'basic', 'property', 'operation', 'info') + (ISSUANCE_FIELDS if M42 else ()):
         require(a[field] == b[field], 'Organizations disagree')
@@ -388,8 +470,8 @@ def preserve(baseline, actual, upgraded):
         if M42: issuance_records(new)
         for field in ('basic', 'property', 'operation', APPROVAL_FIELD) + (ISSUANCE_FIELDS if M42 else ()):
             require(old[field] == new[field], 'Preservation mismatch: ' + field)
-        require({k:v for k,v in old['definitions'].items() if k != 'tokansh'} ==
-                {k:v for k,v in new['definitions'].items() if k != 'tokansh'}, 'Unexpected other-chaincode definition change')
+        require({k:v for k,v in old['definitions'].items() if k != PARAMS['chaincode']} ==
+                {k:v for k,v in new['definitions'].items() if k != PARAMS['chaincode']}, 'Unexpected other-chaincode definition change')
         start, end = channel(old['channel']), channel(new['channel'])
         require(end['height'] >= start['height'], 'Channel height regressed')
         if end['height'] == start['height']: require(end == start, 'Hashes changed at baseline height')
@@ -444,25 +526,25 @@ class Runner:
         return pins
 
     def height(self, org):
-        text = self.run([self.peer, 'channel', 'getinfo', '-c', 'mychannel'], self.env_for(org))
+        text = self.run([self.peer, 'channel', 'getinfo', '-c', PARAMS['channel']], self.env_for(org))
         require(text.startswith('Blockchain info: '))
         return channel(checks.parse_json(text[len('Blockchain info: '):]))
 
     def approval(self, org, sequence, version, package_id=None):
-        value = self.query(['lifecycle','chaincode','queryapproved','-C','mychannel','--name','tokansh','--sequence',str(sequence),'--output','json'], org)
+        value = self.query(['lifecycle','chaincode','queryapproved','-C',PARAMS['channel'],'--name',PARAMS['chaincode'],'--sequence',str(sequence),'--output','json'], org)
         approval(value, version, sequence, package_id)
         return {**value, 'init_required': value.get('init_required', False)}
 
     def observe_desired_approval(self, org, package_id):
         try:
-            value = self.query(['lifecycle','chaincode','queryapproved','-C','mychannel','--name','tokansh',
+            value = self.query(['lifecycle','chaincode','queryapproved','-C',PARAMS['channel'],'--name',PARAMS['chaincode'],
                                 '--sequence',str(PARAMS['sequence']),'--output','json'], org)
         except CLIRejected as error:
             # This exact source-reviewed error means ABSENT OR INCOMPLETE, never
             # verified absence. Only explicit desired-state repair may proceed.
             message = ("query failed with status: 500 - failed to invoke backing implementation of "
                        "'QueryApprovedChaincodeDefinition': could not fetch approved chaincode definition "
-                       f"(name: 'tokansh', sequence: '{PARAMS['sequence']}') on channel 'mychannel'")
+                       f"(name: '{PARAMS['chaincode']}', sequence: '{PARAMS['sequence']}') on channel '{PARAMS['channel']}'")
             require(error.returncode == 1 and not error.stdout.strip() and
                     error.stderr.strip() in (message, 'Error: '+message),
                     'UNKNOWN: unrecognized approval-query failure; no approval authorized')
@@ -488,27 +570,27 @@ class Runner:
         return dict(state='MATCH', observed=value)
 
     def capture(self, deployment_id, property_id, operation_id):
-        result = dict(schema_version=1, deployment_id=deployment_id, channel='mychannel',
+        result = dict(schema_version=1, deployment_id=deployment_id, channel=PARAMS['channel'],
             property_id=identifier(property_id), operation_id=identifier(operation_id), cp_certificate_sha256=self.pins(), organizations={})
         before = {org:self.height(org) for org in ('1','2')}
         require(before['1'] == before['2'], 'Committing peers disagree')
         for org in ('1','2'):
-            defs = definitions(self.query(['lifecycle','chaincode','querycommitted','-C','mychannel','--output','json'], org))
-            lite = definitions(self.query(['lifecycle','chaincode','querycommitted','-C','mychannel','--output','json'], org, True))
+            defs = definitions(self.query(['lifecycle','chaincode','querycommitted','-C',PARAMS['channel'],'--output','json'], org))
+            lite = definitions(self.query(['lifecycle','chaincode','querycommitted','-C',PARAMS['channel'],'--output','json'], org, True))
             require(defs == lite, 'Lite/Committing peer definitions disagree')
-            query = lambda cc, args, app=False: self.query(['chaincode','query','-C','mychannel','-n',cc,'-c',json.dumps({'Args':args})], org, True, app)
-            prop = query('tokansh', ['GetRegisteredProperty',property_id], True)
-            op = query('tokansh', ['GetOperation','Org1MSP',operation_id], True)
+            query = lambda cc, args, app=False: self.query(['chaincode','query','-C',PARAMS['channel'],'-n',cc,'-c',json.dumps({'Args':args})], org, True, app)
+            prop = query(PARAMS['chaincode'], ['GetRegisteredProperty',property_id], True)
+            op = query(PARAMS['chaincode'], ['GetOperation','Org1MSP',operation_id], True)
             records(prop, op, property_id, operation_id)
             result['organizations'][org] = dict(channel=before[org], definitions=defs,
                 basic=assets(query('basic',['GetAllAssets'])), property=prop, operation=op,
-                info=query('tokansh',['GetContractInfo'], True))
+                info=query(PARAMS['chaincode'],['GetContractInfo'], True))
             result['organizations'][org][APPROVAL_FIELD] = self.approval(org,PARAMS['current_sequence'],PARAMS['current_version'])
             if M42:
                 row = result['organizations'][org]
-                row['issuance'] = query('tokansh',['GetIssuanceState',property_id], True)
-                row['issuer_balance'] = query('tokansh',['GetBalance',property_id,prop['issuer_id']], True)
-                row['issuance_operation'] = query('tokansh',['GetIssuanceOperation',ISSUANCE_ID], True)
+                row['issuance'] = query(PARAMS['chaincode'],['GetIssuanceState',property_id], True)
+                row['issuer_balance'] = query(PARAMS['chaincode'],['GetBalance',property_id,prop['issuer_id']], True)
+                row['issuance_operation'] = query(PARAMS['chaincode'],['GetIssuanceOperation',ISSUANCE_ID], True)
                 issuance_records(row)
         require(before == {org:self.height(org) for org in ('1','2')}, 'Channel changed during snapshot; stop for review')
         return result
@@ -563,8 +645,8 @@ class Runner:
 
 
 def definition_args():
-    return ['--channelID','mychannel','--name','tokansh','--version',PARAMS['version'],'--sequence',str(PARAMS['sequence']),
-            '--signature-policy',POLICY,'--endorsement-plugin','escc','--validation-plugin','vscc','--init-required=false']
+    return ['--channelID',PARAMS['channel'],'--name',PARAMS['chaincode'],'--version',PARAMS['version'],'--sequence',str(PARAMS['sequence']),
+            '--signature-policy',PARAMS['policy'],'--endorsement-plugin','escc','--validation-plugin','vscc','--init-required=false']
 
 def orderer_args(runner):
     return ['-o','localhost:7050','--ordererTLSHostnameOverride','orderer.example.com','--tls','--cafile',
@@ -622,7 +704,7 @@ def execute_phase(phase, runner, m, baseline, binding, authorization_flags=None)
     require(runner.pins() == m['cp_certificate_sha256'], 'Local network certificate binding mismatch')
     require(runner.run([runner.peer,'lifecycle','chaincode','calculatepackageid',m['package_path']]).strip() == m['package_id'])
     actual = runner.capture(m['deployment_id'],baseline['property_id'],baseline['operation_id'])
-    current = actual['organizations']['1']['definitions']['tokansh']
+    current = actual['organizations']['1']['definitions'][PARAMS['chaincode']]
     upgraded = current['version'] == PARAMS['version'] and current['sequence'] == PARAMS['sequence']
     preserve(baseline, actual, upgraded)
     save(runner.evidence/'snapshot.json', actual)
@@ -762,6 +844,18 @@ def main(argv=None):
     if argv[:1] == ['--m42']:
         configure_m42()
         argv.pop(0)
+    elif argv[:1] == ['--transition']:
+        require(len(argv) >= 5, 'Transition requires current version, current sequence, target version and target sequence')
+        transition = argv[1:5]
+        cursor = 5
+        options = {'channel': 'mychannel', 'chaincode': 'tokansh', 'policy': POLICY}
+        option_names = {'--channel': 'channel', '--chaincode': 'chaincode', '--policy': 'policy'}
+        while cursor < len(argv) and argv[cursor] in option_names:
+            require(cursor + 1 < len(argv), 'Transition option requires a value')
+            options[option_names[argv[cursor]]] = argv[cursor + 1]
+            cursor += 2
+        configure_next_transition(transition[0], int(transition[1]), transition[2], int(transition[3]), **options)
+        argv = argv[cursor:]
     require(len(argv) >= 2 and argv[0] in PHASES and argv[1] == '--authorize-'+argv[0],
             'Exactly one phase and its explicit organization-specific acknowledgement are required')
     options = [token.split('=',1)[0] for token in argv[2:] if token.startswith('--')]

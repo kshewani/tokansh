@@ -147,7 +147,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(db.exists())
         with sqlite3.connect(db) as connection:
             connection.execute('CREATE TABLE alembic_version(version_num TEXT)')
-            connection.execute("INSERT INTO alembic_version VALUES ('0002_registration')")
+            connection.execute("INSERT INTO alembic_version VALUES ('0004_marketplace')")
             for table in ('properties','application_operations','property_events'):connection.execute('CREATE TABLE '+table+'(id TEXT)')
             connection.execute('CREATE TABLE ledger_operations(operation_id TEXT,property_id TEXT,state TEXT,artifact_json TEXT,transaction_id TEXT)')
         db.chmod(0o600);before=db.read_bytes()
@@ -156,6 +156,25 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(result['DATABASE_URL'],'sqlite:///'+str(db))
         path.chmod(0o644)
         with self.assertRaises(app.Failure):app.configuration()
+
+    def test_outdated_database_revision_is_rejected(self):
+        import sqlite3
+        config=self.home/'.config/tokansh';config.mkdir(parents=True,mode=0o700)
+        data=self.home/'.local/share/tokansh';data.mkdir(parents=True,mode=0o700)
+        cert=self.home/'identity';cert.write_text('test-only')
+        path=config/'local.env'
+        values=dict(TOKANSH_GATEWAY_SECRET='a'*64,TOKANSH_OPERATOR_SECRET='b'*64,
+            DRUNIX_CERT_PATH=str(cert),DRUNIX_KEY_PATH=str(cert),DRUNIX_TLS_CA_PATH=str(cert),
+            DRUNIX_MSP_ID='Org1MSP',DRUNIX_PEER_ENDPOINT='dns:///127.0.0.1:7051',DRUNIX_TLS_SERVER_NAME='peer0.org1.example.com')
+        path.write_text(''.join(f'{k}={v}\n' for k,v in values.items()));path.chmod(0o600)
+        db=data/'tokansh.db'
+        with sqlite3.connect(db) as connection:
+            connection.execute('CREATE TABLE alembic_version(version_num TEXT)')
+            connection.execute("INSERT INTO alembic_version VALUES ('0003_demo_cash')")
+        db.chmod(0o600)
+        with patch.dict(os.environ,{},clear=True):
+            with self.assertRaisesRegex(app.Failure,'0004_marketplace'):
+                app.configuration()
 
     def test_concurrent_command_lock_and_health_timeout(self):
         with (self.supervisor.root/'lock').open('a') as lock:
@@ -198,7 +217,7 @@ class LifecycleTests(unittest.TestCase):
             launch.assert_not_called();stop.assert_not_called()
 
     def test_exact_reviewed_contract_interfaces_start(self):
-        for info in (app.INFO,app.INFO_V11,app.INFO_V12):
+        for info in (app.INFO,app.INFO_V11,app.INFO_V12_LEGACY,app.INFO_V12):
             with self.subTest(functions=len(info['functions'])):
                 self.check_metadata_start({'data':copy.deepcopy(info)},True)
 

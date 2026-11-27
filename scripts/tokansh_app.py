@@ -19,6 +19,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 REPO = Path(__file__).resolve().parents[1]
 PORTS = {'gateway': 8001, 'backend': 8000, 'frontend': 5173}
+REQUIRED_SCHEMA_REVISION = '0004_marketplace'
 INFO = dict(contract='tokansh', schema_version=1,
             functions=['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty'],
             supply_interpretation='LIFETIME_CUMULATIVE_ISSUANCE_CEILING')
@@ -26,8 +27,12 @@ INFO = dict(contract='tokansh', schema_version=1,
 INFO_V11 = {**INFO, 'functions': INFO['functions'] +
             ['IssueANSH', 'GetIssuanceState', 'GetBalance', 'GetIssuanceOperation']}
 
-# Exact M4.2 interface; no arbitrary function supersets are accepted.
-INFO_V12 = {**INFO_V11, 'functions': INFO_V11['functions'] + ['TransferANSH']}
+# Historical nine-function metadata remains readable for compatibility, but
+# it does not advertise the current issuance policy.
+INFO_V12_LEGACY = {**INFO_V11, 'functions': INFO_V11['functions'] + ['TransferANSH']}
+# Exact current interface; no arbitrary function supersets are accepted.
+INFO_V12 = {**INFO_V12_LEGACY, 'supply_interpretation': 'ONE_TIME_FULL_SUPPLY_ISSUANCE'}
+SUPPORTED_CONTRACT_METADATA = (INFO, INFO_V11, INFO_V12_LEGACY, INFO_V12)
 
 
 class Failure(Exception):
@@ -145,8 +150,8 @@ def configuration():
     try:
         with sqlite3.connect('file:'+quote(str(expected.resolve()))+'?mode=ro', uri=True) as db:
             db.execute('PRAGMA query_only=ON')
-            require(db.execute('SELECT version_num FROM alembic_version').fetchall() == [('0003_demo_cash',)],
-                    'SQLite migration revision must be 0002_registration; migrate only under separate authorization.')
+            require(db.execute('SELECT version_num FROM alembic_version').fetchall() == [(REQUIRED_SCHEMA_REVISION,)],
+                    f'SQLite migration revision must be {REQUIRED_SCHEMA_REVISION}; migrate only under separate authorization.')
             for table in ('properties', 'application_operations', 'property_events', 'ledger_operations'):
                 db.execute(f'SELECT * FROM {table} LIMIT 0')
             db.execute('SELECT operation_id,property_id,state,artifact_json,transaction_id FROM ledger_operations LIMIT 0')
@@ -316,7 +321,7 @@ class App:
                 if name == 'gateway':
                     try:
                         data = http_json(8001, '/v1/tokansh/contract-info', env['TOKANSH_GATEWAY_SECRET'])
-                        require(isinstance(data, dict) and isinstance(data.get('data'), dict) and type(data['data'].get('schema_version')) is int and data in ({'data': INFO}, {'data': INFO_V11}, {'data': INFO_V12}), 'Unexpected TokANSH contract metadata.')
+                        require(isinstance(data, dict) and isinstance(data.get('data'), dict) and type(data['data'].get('schema_version')) is int and data in tuple({'data': info} for info in SUPPORTED_CONTRACT_METADATA), 'Unexpected TokANSH contract metadata.')
                     except Exception:
                         raise Failure('Gateway contract evaluation failed. Check identity, secrets, TLS and separately managed DRUNIX availability; no fallback or ledger write occurred.') from None
             require(all(self.owned(n) for n in PORTS), 'An application process exited during startup.')

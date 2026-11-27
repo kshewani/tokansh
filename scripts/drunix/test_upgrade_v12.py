@@ -130,6 +130,7 @@ class UpgradeV12Tests(unittest.TestCase):
             row=self.runner.captured['organizations'][org]
             row['definitions']['tokansh']=legacy.definition('1.2',3)
             row['info']['functions']=list(v.M4_FUNCTIONS)
+            row['info']['supply_interpretation']=v.ONE_TIME_SUPPLY
             row['channel']['height']+=3
             self.runner.installed_rows[org]=[dict(package_id=self.package,label='tokansh_1.2')]
         self.execute('verify')
