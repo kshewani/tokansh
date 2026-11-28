@@ -116,7 +116,7 @@ test('connected marketplace disables purchase when authoritative wallet data is 
  }]);
  cache.setQueryData(['marketplace-properties'],[]);
  const html=renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(ConnectedMarketplace))))));
- assert.match(html,/Available simulated cash/);assert.match(html,/Unavailable/);
+ assert.match(html,/Available cash/);assert.match(html,/Unavailable/);
  assert.match(html,/disabled=""[^>]*>Purchase existing ANSH/s);
  assert.doesNotMatch(html,/500 ANSH|100,000 ANSH|COMMITTED_VALID|Simulated payment outcome/);
  cache.clear();
@@ -134,10 +134,10 @@ test('financing detail shows simulated loan amounts, dated lifecycle and the cor
   repayment_minor:'660000',outstanding_principal_minor:'600000',amount_due_minor:'660000',assessment:null,
   timeline:[{state:'DISBURSED',timestamp:'2026-11-20T10:00:00Z',actor_role:'INVESTOR',simulated:true}]};
  const html=renderToStaticMarkup(h(LoanDetails,{loan:base,onAction:()=>{}}));
- assert.match(html,/SIMULATED/);assert.match(html,/₹6,600.00/);assert.match(html,/Simulate full repayment/);assert.match(html,/dateTime="2026-11-20T10:00:00Z"/i);
- assert.doesNotMatch(html,/Release simulation reservation/);
+ assert.match(html,/APPLICATION RECORD/);assert.match(html,/₹6,600.00/);assert.match(html,/Record full repayment/);assert.match(html,/dateTime="2026-11-20T10:00:00Z"/i);
+ assert.doesNotMatch(html,/Release application reservation/);
  const repaid=renderToStaticMarkup(h(LoanDetails,{loan:{...base,state:'REPAID',outstanding_principal_minor:'0',amount_due_minor:'0'},onAction:()=>{}}));
- assert.match(repaid,/Release simulation reservation/);assert.doesNotMatch(repaid,/Simulate full repayment/);
+ assert.match(repaid,/Release application reservation/);assert.doesNotMatch(repaid,/Record full repayment/);
 });
 
 const {ReitHoldingsCard}=await import('../src/components/ReitHoldings.tsx');

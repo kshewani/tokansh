@@ -7,7 +7,7 @@ export type Eligibility={property_id:string;holder_id:string;owned:number;reserv
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const money=(v:unknown):v is string=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
 const units=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
-function bad():never{throw new RequestError(200,'MALFORMED_RESPONSE','The financing simulation response is inconsistent. Refresh its saved state.');}
+function bad():never{throw new RequestError(200,'MALFORMED_RESPONSE','The financing response is inconsistent. Refresh its saved state.');}
 export function financeQuote(quantity:number,unit:string,ltv:number,rate:number,months:number){
  if(!Number.isSafeInteger(quantity)||quantity<1||!money(unit)||BigInt(unit)<1n||BigInt(unit)>999999999999n||!Number.isInteger(ltv)||ltv<20||ltv>75||!Number.isInteger(rate)||rate<1||rate>3000||!Number.isInteger(months)||months<1||months>36)throw new Error('Enter valid illustrative terms.');
  const collateral=BigInt(quantity)*BigInt(unit),principal=collateral*BigInt(ltv)/100n;

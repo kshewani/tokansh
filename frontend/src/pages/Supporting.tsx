@@ -26,7 +26,7 @@ function PreviewDistributions(){
  return <><SectionHeading title="Rental Distributions" description="Declare income and calculate eligible entitlements using verified record-date ownership."/>
  <div className="grid gap-4 md:grid-cols-3"><Metric label="Illustrative distribution" value={inr(sample.distribution)} description="Total declared amount"/><Metric label="Record-date ANSH · illustration" value={integer(entitlement.eligibleUnits)} description="Requires verified ledger snapshot"/><Metric label="Illustrative investor entitlement" value={inr(entitlement.entitlement)} description="500 / 100,000 × ₹10,00,000"/></div>
  <div className="mt-5 grid gap-5 xl:grid-cols-2">
- <Card title="Distribution declaration" description="Issuer workflow · calculation and simulated payment are separate">
+ <Card title="Distribution declaration" description="Issuer workflow · calculation and payment are separate">
  <form className="space-y-4" onSubmit={e=>{e.preventDefault();if(valid)setOpen(true);}}>
  <Field label="Property" id="dist-asset" value={sample.name} readOnly/>
  <Field label="Distribution period" id="dist-period" value={sample.distributionPeriod} readOnly/>
@@ -41,7 +41,7 @@ function PreviewDistributions(){
  {eligible&&<p className="mt-4 text-xs text-slate-500">Expected example: {integer(entitlement.eligibleUnits)} / 100,000 × {inr(sample.distribution)} = {inr(entitlement.entitlement)}.</p>}
  </Card></div>
  <div className="mt-5"><ReitIncomeCard/></div>
- <ReviewDialog open={open} onOpenChange={setOpen} title="Review rental distribution" description="Backend must calculate allocations from confirmed record-date ownership. Payment simulation is a separate stage." onConfirm={async()=>{await submit(route.distributions,{property_id:sample.id,period:sample.distributionPeriod,record_date:recordDate,total_amount:amount,currency:'INR'});setOpen(false);}} busy={submitting} confirmLabel="Submit declaration"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Record date" value={recordDate}/><DataRow label="Total" value={inr(amount)}/><DataRow label="Snapshot evidence" value="Not connected"/></dl></ReviewDialog>
+ <ReviewDialog open={open} onOpenChange={setOpen} title="Review rental distribution" description="Backend must calculate allocations from confirmed record-date ownership. Payment processing is a separate stage." onConfirm={async()=>{await submit(route.distributions,{property_id:sample.id,period:sample.distributionPeriod,record_date:recordDate,total_amount:amount,currency:'INR'});setOpen(false);}} busy={submitting} confirmLabel="Submit declaration"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Record date" value={recordDate}/><DataRow label="Total" value={inr(amount)}/><DataRow label="Snapshot evidence" value="Not connected"/></dl></ReviewDialog>
  </>;
 }
 export function Audit({mode='audit'}:{mode?:'audit'|'transactions'}){

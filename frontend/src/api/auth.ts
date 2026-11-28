@@ -17,7 +17,7 @@ export function parseAuthSession(value:unknown,token?:string):AuthSession {
 export async function login(request:ApiRequest,username:string,password:string,expectedRole:AuthRole):Promise<AuthSession>{
  const value=await request<unknown>('/api/v1/auth/login',{method:'POST',body:{username,password}});
  const session=parseAuthSession(value);
- if(session.role!==expectedRole)throw new RequestError(401,'INVALID_CREDENTIALS','The selected login type does not match the registered demo identity.');
+ if(session.role!==expectedRole)throw new RequestError(401,'INVALID_CREDENTIALS','The selected login type does not match the registered identity.');
  return session;
 }
 export async function currentSession(request:ApiRequest,token:string):Promise<AuthSession>{

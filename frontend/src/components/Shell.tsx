@@ -17,7 +17,6 @@ const nav:MenuItem[]=[
  {to:'/lending',label:'Application Review',icon:Landmark,roles:['LENDER'],section:'Institution'},
  {to:'/transactions',label:'Activity',icon:FileClock,roles:['INVESTOR','LENDER'],section:'Insights'},
  {to:'/intelligence',label:'Asset Research',icon:BarChart3,roles:['INVESTOR'],section:'Insights'},
- {to:'/distributions',label:'Income',icon:HandCoins,roles:['INVESTOR'],section:'Insights'},
  {to:'/system',label:'System Status',icon:Activity,roles:['INVESTOR','LENDER'],section:'Insights'}
 ];
 export function Shell(){

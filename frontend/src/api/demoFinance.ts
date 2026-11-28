@@ -4,7 +4,7 @@ export type Lender={id:string;name:string;simulated:true;offers:Offer[]};
 export type Cash={investor_id:string;balance_minor:string;currency:'INR';simulated:true};
 export type CashEntry={id:string;kind:'DEMO_FUNDS'|'WITHDRAWAL'|'DISBURSEMENT'|'REPAYMENT';amount_minor:string;balance_after_minor:string;loan_id:string|null;created_at:string;currency:'INR';simulated:true;status:'SIMULATED_COMPLETED'};
 const amount=(v:unknown)=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v)&&BigInt(v)<=9007199254740991n;
-function invalid():never{throw new RequestError(200,'MALFORMED_RESPONSE','Demo finance response could not be verified. Refresh saved activity before repeating an action.');}
+function invalid():never{throw new RequestError(200,'MALFORMED_RESPONSE','Cash finance response could not be verified. Refresh saved activity before repeating an action.');}
 export function parseLenders(value:unknown):Lender[]{
  if(!Array.isArray(value)||!value.length)return invalid();
  const ids=new Set();

@@ -20,7 +20,7 @@ export const ledgerUnavailable:LedgerEvidence={state:'NOT_CONNECTED',transaction
 export const propertyImage='/images/properties/property-fallback.svg';
 export const sample={
   id:'TECHPARK-ONE',name:'TechPark One',location:'Bengaluru, Karnataka',type:'Commercial office',
-  valuation:'1000000000',approvedSupply:100000,unitPrice:'10000',issuer:'Meera · Demo issuer',
+  valuation:'1000000000',approvedSupply:100000,unitPrice:'10000',issuer:'Meera · Property issuer',
   currency:'INR',recordDate:'2026-11-20',distribution:'1000000',loan:'1200000',ltv:60,
   distributionPeriod:'November 2026'
 };
@@ -68,6 +68,6 @@ export function scenarioEntitlement(phase:Phase) {
 }
 export const roleOptions:{role:Role;label:string;description:string}[]=[
  {role:'INVESTOR',label:'Investor',description:'Marketplace, portfolio, purchases, pledge, income'},
- {role:'LENDER',label:'Lender',description:'Simulated financing, assessment and collateral review'}
+ {role:'LENDER',label:'Lender',description:'Financing, assessment and collateral review'}
 ];
 export function phaseHelp(p:Phase):string{return phases.find(x=>x.id===p)?.description||'';}

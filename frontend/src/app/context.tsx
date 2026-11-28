@@ -26,7 +26,7 @@ function previewSession(username:string,role:AuthRole):AuthSession {
  const normalized=username.trim().toLowerCase();
  const lenders:{id:string;name:string}[]=[{id:'axim-bank',name:'Axim Bank'},{id:'real-finance',name:'Real Finance'},{id:'horizon-credit',name:'Horizon Credit'}];
  const organization=lenders.find(value=>value.id===normalized);
- if(!normalized||(!lender&&!['meera','aarav'].includes(normalized))||(lender&&!organization))throw new RequestError(401,'INVALID_CREDENTIALS','The demo identity or password is invalid.');
+ if(!normalized||(!lender&&!['meera','aarav'].includes(normalized))||(lender&&!organization))throw new RequestError(401,'INVALID_CREDENTIALS','The selected identity or password is invalid.');
  return {access_token:'preview-session',token_type:'bearer',username:lender?normalized:normalized[0].toUpperCase()+normalized.slice(1),display_name:lender?(organization?.name||normalized):normalized[0].toUpperCase()+normalized.slice(1),role,user_id:lender?'preview-lender':`preview-${normalized}`,organization_id:lender?normalized:null};
 }
 export function AppProvider({children}:{children:ReactNode}){
@@ -39,7 +39,7 @@ export function AppProvider({children}:{children:ReactNode}){
  const submissionGuard=useRef(createSubmissionGuard());
  const role=(session?.role||'INVESTOR') as Role;
  useEffect(()=>{
-  const fail=()=>{clearAuthSession();setSession(null);setAuthStatus('unauthenticated');setAuthError(new RequestError(401,'AUTHENTICATION_REQUIRED','Your demo session is no longer valid.'));queryClient.clear();};
+ const fail=()=>{clearAuthSession();setSession(null);setAuthStatus('unauthenticated');setAuthError(new RequestError(401,'AUTHENTICATION_REQUIRED','Your session is no longer valid.'));queryClient.clear();};
   window.addEventListener('tokansh-auth-failure',fail);
   if(API_MODE!=='real'){clearAuthSession();setSession(null);setAuthStatus('unauthenticated');return()=>window.removeEventListener('tokansh-auth-failure',fail);}
   const stored=readAuthSession();
@@ -63,7 +63,7 @@ export function AppProvider({children}:{children:ReactNode}){
   },
   onError:(error)=>notify({kind:'error',text:errorFeedback(error)})
  });
- const login=async(username:string,password:string,expectedRole:AuthRole)=>{if(!password)throw new RequestError(422,'INVALID_CREDENTIALS','A nonempty demo password is required.');const value=API_MODE==='real'?await loginRequest(request,username,password,expectedRole):previewSession(username,expectedRole);if(API_MODE==='real')writeAuthSession(value);setSession(value);setAuthStatus('authenticated');setAuthError(null);setPhase('ONBOARDING');notify(null);queryClient.clear();};
+ const login=async(username:string,password:string,expectedRole:AuthRole)=>{if(!password)throw new RequestError(422,'INVALID_CREDENTIALS','A nonempty password is required.');const value=API_MODE==='real'?await loginRequest(request,username,password,expectedRole):previewSession(username,expectedRole);if(API_MODE==='real')writeAuthSession(value);setSession(value);setAuthStatus('authenticated');setAuthError(null);setPhase('ONBOARDING');notify(null);queryClient.clear();};
  const logout=async()=>{try{if(API_MODE==='real'&&session)await logoutRequest(request);}catch{/* Local state must be cleared even when the backend is unavailable. */}finally{clearAuthSession();setSession(null);setAuthStatus('unauthenticated');setAuthError(null);setPhase('ONBOARDING');notify(null);queryClient.clear();}};
  const preview=useMemo(()=>previewData(API_MODE,phase),[phase]);
  // A failed/refetching observation must not leave an old CONNECTED badge visible.

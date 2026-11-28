@@ -55,27 +55,27 @@ export function incomeSnapshot(id:string,holder:string,property:string,quantity:
  return {id,holder_id:holder,observed_at:observedAt,ownership_source:source,lines,total_minor:String(lines.reduce((sum,line)=>sum+BigInt(line.entitlement_minor),0n))};
 }
 function validatePayout(value:unknown,holder:string,property:string,source:IncomeSnapshot['ownership_source']):SimulatedPayout{
- if(!isRecord(value)||typeof value.id!=='string'||!/^[0-9a-f-]{36}$/.test(value.id)||value.holder_id!==holder||value.ownership_source!==source||value.status!=='SIMULATED_COMPLETED'||!instant(value.observed_at)||!instant(value.completed_at)||Date.parse(value.completed_at)<Date.parse(value.observed_at)||!Array.isArray(value.lines)||value.lines.length!==reitHoldingsFor(holder).length+1)throw new Error('Invalid browser simulation history.');
+ if(!isRecord(value)||typeof value.id!=='string'||!/^[0-9a-f-]{36}$/.test(value.id)||value.holder_id!==holder||value.ownership_source!==source||value.status!=='SIMULATED_COMPLETED'||!instant(value.observed_at)||!instant(value.completed_at)||Date.parse(value.completed_at)<Date.parse(value.observed_at)||!Array.isArray(value.lines)||value.lines.length!==reitHoldingsFor(holder).length+1)throw new Error('Invalid browser history.');
  const line=value.lines[0];
- if(!isRecord(line)||!units(line.units)||!minor(line.rate_minor))throw new Error('Invalid browser simulation history.');
+ if(!isRecord(line)||!units(line.units)||!minor(line.rate_minor))throw new Error('Invalid browser history.');
  const expected=incomeSnapshot(value.id,holder,property,line.units,line.rate_minor,value.observed_at,source);
- if(value.total_minor!==expected.total_minor||!value.lines.every((line,i)=>isRecord(line)&&Object.entries(expected.lines[i]).every(([k,v])=>line[k]===v)))throw new Error('Inconsistent browser simulation history.');
+ if(value.total_minor!==expected.total_minor||!value.lines.every((line,i)=>isRecord(line)&&Object.entries(expected.lines[i]).every(([k,v])=>line[k]===v)))throw new Error('Inconsistent browser history.');
  return value as SimulatedPayout;
 }
 type Store=Pick<Storage,'getItem'|'setItem'>;
 export function payoutSlot(source:IncomeSnapshot['ownership_source'],holder:string){return 'tokansh-income-v1:'+source+':'+holder;}
 export function readPayouts(store:Store,holder:string,property:string,source:IncomeSnapshot['ownership_source']):SimulatedPayout[]{
  const raw=store.getItem(payoutSlot(source,holder));if(!raw)return [];
- const values:unknown=JSON.parse(raw);if(!Array.isArray(values)||values.length>20)throw new Error('Invalid browser simulation history.');
+ const values:unknown=JSON.parse(raw);if(!Array.isArray(values)||values.length>20)throw new Error('Invalid browser history.');
  const rows=values.map(v=>validatePayout(v,holder,property,source));
- if(new Set(rows.map(v=>v.id)).size!==rows.length)throw new Error('Duplicate browser simulation receipt.');
+ if(new Set(rows.map(v=>v.id)).size!==rows.length)throw new Error('Duplicate browser receipt.');
  return rows;
 }
 export function recordPayout(store:Store,snapshot:IncomeSnapshot,completedAt:string){
  const row=validatePayout({...snapshot,status:'SIMULATED_COMPLETED',completed_at:completedAt},snapshot.holder_id,snapshot.lines[0].asset_id,snapshot.ownership_source);
  const rows=readPayouts(store,row.holder_id,row.lines[0].asset_id,row.ownership_source),existing=rows.find(v=>v.id===row.id);
  if(existing){
-  if(JSON.stringify({...existing,completed_at:''})!==JSON.stringify({...row,completed_at:''}))throw new Error('Conflicting simulation reference.');
+  if(JSON.stringify({...existing,completed_at:''})!==JSON.stringify({...row,completed_at:''}))throw new Error('Conflicting receipt reference.');
   return rows;
  }
  const next=[row,...rows].slice(0,20);store.setItem(payoutSlot(row.ownership_source,row.holder_id),JSON.stringify(next));return next;
@@ -87,7 +87,7 @@ export function researchScenario(valueCrore:string,occupancy:string,yieldPercent
  const gross=value*BigInt(bps)/10000n,adjusted=gross*BigInt(occupancy)/100n;
  return {valuation_minor:String(value),gross_rent_minor:String(gross),occupancy_adjusted_rent_minor:String(adjusted),yield_bps:bps,
   risks:[{title:'Liquidity',level:'Elevated',reason:'Transfers are supported, but no guaranteed buyer, matching engine or exit liquidity is assumed.'},
-   {title:'Concentration',level:'Focused',reason:'The displayed ANSH position references one property. Simulated REIT holdings are a separate analytical illustration.'},
+   {title:'Concentration',level:'Focused',reason:'The displayed ANSH position references one property. Illustrative REIT holdings are a separate analytical representation.'},
    {title:'Valuation',level:Number(valueCrore)>120?'Higher sensitivity':'Unverified',reason:'The valuation is an editable scenario assumption, not an independent appraisal.'}],
   insights:[Number(occupancy)<85?'Lower assumed occupancy increases vacancy sensitivity.':'The occupancy assumption supports the rent model; no lease roll has been verified.',
    bps>900?'Higher assumed yield increases the need to test costs and collection risk.':'Gross yield excludes fees, taxes and collection losses.',

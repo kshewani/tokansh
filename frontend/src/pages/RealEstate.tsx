@@ -15,7 +15,7 @@ import {ReviewDialog} from '../components/ui/dialog';
 import {Field,SelectField,DataRow} from '../components/ui/form';
 import {PreviewWarning,Status} from '../components/ui/status';
 function TransitionTimeline({phase}:{phase:string}){
- const labels=['Order created','Business validation','Simulated payment','DRUNIX submission','Ledger commitment','Portfolio projection'];
+ const labels=['Order created','Business validation','Payment processing','DRUNIX submission','Ledger commitment','Portfolio projection'];
  return <ol className="space-y-4">{labels.map((label,i)=><li key={label} className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-[#1769AA]">{i+1}</span><div><p className="text-sm font-semibold text-slate-700">{label}</p><p className="mt-1 text-xs text-slate-500">{i<3?'Supporting workflow stage':i===3?'Submission requires Python and DRUNIX':i===4?'Only actual commit permits success':'Only refresh after verified commit'}</p></div><Status value={i===0&&phase==='PURCHASED'?'PREVIEW_ONLY':'UNAVAILABLE'}/></li>)}</ol>;
 }
 export function Registry(){
@@ -187,6 +187,6 @@ function PreviewMarketplace(){
   <Card title="Purchase & settlement timeline" description="Each stage requires independent evidence"><TransitionTimeline phase={phase}/></Card></div>
  </div>
  <div className="mt-5"><PreviewWarning/></div>
- <ReviewDialog open={open} onOpenChange={setOpen} title="Review purchase order" description="Submitting an order is not equivalent to payment or DRUNIX commitment. No ownership updates are performed by the frontend." onConfirm={async()=>{await submit(route.orders,order);setOpen(false);}} busy={submitting} confirmLabel="Submit order request"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Quantity" value={integer(quantity)+' ANSH'}/><DataRow label="Payment amount" value={inr(quantity*Number(sample.unitPrice))}/><DataRow label="Payment type" value="Simulated by backend only"/><DataRow label="Ledger finality" value="Await actual DRUNIX commit"/></dl></ReviewDialog>
+ <ReviewDialog open={open} onOpenChange={setOpen} title="Review purchase order" description="Submitting an order is not equivalent to payment or DRUNIX commitment. No ownership updates are performed by the frontend." onConfirm={async()=>{await submit(route.orders,order);setOpen(false);}} busy={submitting} confirmLabel="Submit order request"><dl><DataRow label="Property" value={sample.name}/><DataRow label="Quantity" value={integer(quantity)+' ANSH'}/><DataRow label="Payment amount" value={inr(quantity*Number(sample.unitPrice))}/><DataRow label="Payment type" value="Application-recorded payment"/><DataRow label="Ledger finality" value="Await actual DRUNIX commit"/></dl></ReviewDialog>
  </>;
 }
