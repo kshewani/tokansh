@@ -19,8 +19,20 @@ const loan=(id,state='DISBURSED',property_id='f6169750-4676-4e99-887f-2bc5471bd5
 test('lender activity summarizes distinct applications and lifecycle money without double counting',()=>{
  const result=lenderSummary([loan('70000000-0000-4000-8000-000000000001')],rangeCutoff('ALL',Date.parse('2026-11-30T00:00:00Z')));
  assert.deepEqual(result,{applications:1,approved:1,disbursed:1,disbursedMinor:'600000',repaid:0,repaidMinor:'0'});
- assert.equal(eventCount([loan('70000000-0000-4000-8000-000000000001')],'APPLICATIONS',null),1);
- assert.equal(eventCount([loan('70000000-0000-4000-8000-000000000001')],'APPROVALS',null),1);
+ assert.equal(eventCount([loan('70000000-0000-4000-8000-000000000001')],'ALL',null),1);
+ assert.equal(eventCount([loan('70000000-0000-4000-8000-000000000001')],'DISBURSED',null),1);
+});
+
+test('current status categories are mutually exclusive and keep closed repayment distinct in history',()=>{
+ const approved=loan('70000000-0000-4000-8000-000000000004','APPROVED');
+ const closed=loan('70000000-0000-4000-8000-000000000005','REPAID');
+ closed.timeline=[...closed.timeline,{state:'REPAID',timestamp:'2026-11-23T10:00:00Z',actor_role:'INVESTOR',simulated:true}];
+ const records=[approved,closed];
+ assert.equal(eventCount(records,'APPROVED',null),1);
+ assert.equal(eventCount(records,'CLOSED',null),1);
+ assert.equal(eventCount(records,'DISBURSED',null),0);
+ assert.equal(eventCount(records,'ALL',null),2);
+ assert.equal(closed.timeline.at(-1).state,'REPAID');
 });
 
 test('lender activity filters by event and searchable property metadata',()=>{
@@ -35,4 +47,5 @@ test('date scope excludes lifecycle events outside the selected reporting period
  const value=loan('70000000-0000-4000-8000-000000000003');
  assert.equal(lenderSummary([value],rangeCutoff('7',Date.parse('2026-12-01T00:00:00Z'))).applications,0);
  assert.equal(lenderSummary([value],rangeCutoff('ALL',Date.parse('2026-12-01T00:00:00Z'))).applications,1);
+ assert.equal(eventCount([value],'ALL',rangeCutoff('7',Date.parse('2026-12-01T00:00:00Z'))),0);
 });

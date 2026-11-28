@@ -1,12 +1,16 @@
 import type {FinanceState,Loan} from './financing.ts';
 
-export type ActivityFilter='ALL'|'APPLICATIONS'|'APPROVALS'|'DISBURSEMENTS'|'REPAYMENTS'|'REJECTED'|'RELEASED';
+export type ActivityFilter='ALL'|'PENDING'|'APPROVED'|'DISBURSED'|'CLOSED'|'REJECTED';
 export type ActivityRange='7'|'30'|'90'|'ALL';
 export type ActivityProperty={name?:string;location?:string;ansh_symbol?:string};
 
-const filterState:Record<Exclude<ActivityFilter,'ALL'|'APPLICATIONS'>,FinanceState>={
- APPROVALS:'APPROVED',DISBURSEMENTS:'DISBURSED',REPAYMENTS:'REPAID',REJECTED:'REJECTED',RELEASED:'RELEASED'
-};
+export function statusCategory(state:FinanceState):Exclude<ActivityFilter,'ALL'>{
+ if(state==='APPLIED'||state==='ASSESSED')return 'PENDING';
+ if(state==='APPROVED')return 'APPROVED';
+ if(state==='DISBURSED')return 'DISBURSED';
+ if(state==='REPAID'||state==='RELEASED')return 'CLOSED';
+ return 'REJECTED';
+}
 
 export function rangeCutoff(range:ActivityRange,now=Date.now()):number|null{
  if(range==='ALL')return null;
@@ -23,10 +27,8 @@ export function scopedEvents(loan:Loan,cutoff:number|null){
 }
 
 export function matchesFilter(loan:Loan,filter:ActivityFilter,cutoff:number|null):boolean{
- const events=scopedEvents(loan,cutoff);
- if(filter==='ALL')return events.length>0;
- if(filter==='APPLICATIONS')return events.some(event=>event.state==='APPLIED');
- return events.some(event=>event.state===filterState[filter]);
+ if(!applicationInScope(loan,cutoff))return false;
+ return filter==='ALL'||statusCategory(loan.state)===filter;
 }
 
 export function latestScopedEvent(loan:Loan,cutoff:number|null){
@@ -50,9 +52,7 @@ export function filterActivity(loans:Loan[],query:string,filter:ActivityFilter,c
 }
 
 export function eventCount(loans:Loan[],filter:ActivityFilter,cutoff:number|null):number{
- if(filter==='ALL')return loans.reduce((total,loan)=>total+scopedEvents(loan,cutoff).length,0);
- if(filter==='APPLICATIONS')return loans.filter(loan=>matchesFilter(loan,filter,cutoff)).length;
- return loans.reduce((total,loan)=>total+scopedEvents(loan,cutoff).filter(event=>event.state===filterState[filter]).length,0);
+ return loans.filter(loan=>matchesFilter(loan,filter,cutoff)).length;
 }
 
 export function lenderSummary(loans:Loan[],cutoff:number|null){

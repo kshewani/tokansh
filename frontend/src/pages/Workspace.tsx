@@ -62,7 +62,7 @@ export function DemoWallet(){
 const lenderEventLabel=(state:string)=>({APPLIED:'Application Received',ASSESSED:'Application Assessed',APPROVED:'Application Approved',REJECTED:'Application Rejected',DISBURSED:'Facility Disbursed',REPAID:'Facility Repaid',RELEASED:'Collateral Released'} as Record<string,string>)[state]||state;
 const lenderEventClass=(state:string)=>`lender-event-${state.toLowerCase()}`;
 const lenderEventIcon=(state:string)=>state==='REJECTED'?XCircle:state==='APPROVED'||state==='REPAID'||state==='RELEASED'?CheckCircle2:state==='DISBURSED'?HandCoins:state==='ASSESSED'?FileCheck2:Clock3;
-const lenderFilterLabel=(filter:ActivityFilter)=>({ALL:'All Activity',APPLICATIONS:'Applications',APPROVALS:'Approvals',DISBURSEMENTS:'Disbursements',REPAYMENTS:'Repayments',REJECTED:'Rejected',RELEASED:'Released'} as Record<ActivityFilter,string>)[filter];
+const lenderFilterLabel=(filter:ActivityFilter)=>({ALL:'All',PENDING:'Pending',APPROVED:'Approved',DISBURSED:'Disbursed',CLOSED:'Closed',REJECTED:'Rejected'} as Record<ActivityFilter,string>)[filter];
 
 function LenderActivity(){
  const {mode,backendConfigured,session}=useApp();
@@ -77,7 +77,7 @@ function LenderActivity(){
  const summary=lenderSummary(loans,cutoff);
  useEffect(()=>{setPage(1);setExpanded(null)},[range,filter,query]);
  if(mode!=='real')return <><div className="lender-activity-header"><p>Monitor financing activity, application lifecycles and audit evidence.</p></div><Card className="lender-activity-empty"><p className="lender-activity-empty-title">Connected lender activity unavailable</p><p>Read-only financing activity is available when the connected lender workspace is active.</p></Card></>;
- const filters:ActivityFilter[]=['ALL','APPLICATIONS','APPROVALS','DISBURSEMENTS','REPAYMENTS','REJECTED','RELEASED'];
+ const filters:ActivityFilter[]=['ALL','PENDING','APPROVED','DISBURSED','CLOSED','REJECTED'];
  return <div className="lender-activity">
   <div className="lender-activity-header"><p>Monitor financing activity, application lifecycles and audit evidence.</p><label className="lender-date-range"><CalendarDays size={16}/><span className="sr-only">Reporting period</span><select value={range} onChange={event=>setRange(event.target.value as ActivityRange)}><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option><option value="90">Last 90 Days</option><option value="ALL">All Time</option></select></label></div>
   <div className="lender-kpi-grid"><LenderKpi icon={FileCheck2} label="Total Applications" value={String(summary.applications)} caption="Distinct applications in scope"/><LenderKpi icon={CheckCircle2} label="Approved" value={String(summary.approved)} caption="Approval events in scope"/><LenderKpi icon={HandCoins} label="Disbursed" value={summary.disbursedMinor==='0'?'₹0.00':moneyINR(summary.disbursedMinor)} caption={`${summary.disbursed} facilities in scope`}/><LenderKpi icon={RotateCcw} label="Repaid" value={summary.repaidMinor==='0'?'₹0.00':moneyINR(summary.repaidMinor)} caption={`${summary.repaid} repayments in scope`}/></div>
