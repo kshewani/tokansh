@@ -24,7 +24,7 @@ test('illustrative distributions preserve integer paise, including large quantit
  const snapshot=incomeSnapshot(id,aarav,ids.property,2,'10000',time,'DRUNIX_CURRENT_BALANCE');
  assert.equal(snapshot.lines[0].entitlement_minor,'20000');
  assert.equal(snapshot.total_minor,'123170');
- assert.equal(snapshot.lines.filter(v=>v.asset_class==='REIT').length,2);
+ assert.equal(snapshot.lines.filter(v=>v.asset_class==='REIT').length,3);
 });
 test('review captures a fresh balance via GET, preserves source and refuses unavailable or malformed reads',async()=>{
  const calls=[];
