@@ -20,7 +20,7 @@ const nav:MenuItem[]=[
  {to:'/system',label:'System Status',icon:Activity,roles:['INVESTOR','LENDER'],section:'Insights'}
 ];
 export function Shell(){
- const {role,session,logout,phase,setPhase,backendReady,mode}=useApp();
+ const {role,session,logout,phase,setPhase,mode}=useApp();
  const navigate=useNavigate();
  const [open,setOpen]=useState(false),[collapsed,setCollapsed]=useState(false),[profileOpen,setProfileOpen]=useState(false);
  const menuButton=useRef<HTMLButtonElement>(null);
@@ -55,7 +55,6 @@ export function Shell(){
    <header className="premium-header sticky top-0 z-20 flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-b px-5 py-3 lg:px-8">
     <div className="flex min-w-0 items-center gap-3"><button className="mobile-menu-button rounded-lg p-2 lg:hidden" ref={menuButton} aria-controls="workspace-navigation" aria-expanded={open} aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={21}/></button><div className="min-w-0"><p className="truncate text-[10px] uppercase tracking-[.14em]">TokANSH / {role==='ISSUER'?'Issuer':role==='INVESTOR'?'Investor':'Lender'}</p><strong className="block truncate text-sm">{title}</strong></div></div>
     <div className="relative flex flex-wrap items-center justify-end gap-2.5">
-     <span className="hidden items-center gap-2 text-xs sm:flex"><span className="status-dot h-2 w-2 rounded-full"/>{mode==='preview'?'Illustrative workspace':backendReady?'Ledger observations available':'Service status unavailable'}</span>
      <button className="premium-profile flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-left" aria-expanded={profileOpen} aria-haspopup="menu" onClick={()=>setProfileOpen(value=>!value)}><span className="gold-icon h-8 w-8 text-sm"><UserCircle size={18}/></span><span className="hidden max-w-[130px] sm:block"><strong className="block truncate text-xs">{session?.display_name||'Account'}</strong><span className="block truncate text-[10px]">{role==='LENDER'&&session?.organization_id?session.organization_id:'Investor account'}</span></span><ChevronRight className={'transition-transform '+(profileOpen?'rotate-90':'')} size={14}/></button>
      {profileOpen&&<div className="premium-profile-menu absolute right-0 top-14 z-50 min-w-[210px] rounded-xl p-2" role="menu"><div className="border-b border-[#2b3647] px-3 py-2"><p className="text-xs font-semibold text-[#f5f1e8]">{session?.display_name||'Account'}</p><p className="mt-1 break-all text-[10px] text-[#a5afbd]">{session?.user_id||'No active identity'}</p></div><button className="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[#f5f1e8] hover:bg-white/10" onClick={handleLogout} role="menuitem"><LogOut size={15}/> Logout / switch account</button></div>}
      {mode==='preview'&&<label className="flex items-center gap-1.5 text-xs text-[#a5afbd]">Scenario <select aria-label="Preview scenario stage" className="max-w-[175px] rounded-md border px-2 py-1.5 text-xs font-semibold" value={phase} onChange={e=>setPhase(e.target.value as typeof phase)}>{phases.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>}
