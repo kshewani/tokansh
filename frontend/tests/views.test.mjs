@@ -50,7 +50,7 @@ test('status view renders loading, configuration failure, malformed-response fee
  assert.match(renderStatus({configured:false}),/API URL is missing/);
  const html=renderStatus({error:new RequestError(200,'MALFORMED_RESPONSE','Invalid status data.')});
  assert.match(html,/role="alert"/);assert.match(html,/MALFORMED_RESPONSE/);assert.match(html,/Retry status check/);
- assert.match(renderStatus({mode:'preview'}),/no backend status request is made/);
+ assert.match(renderStatus({mode:'preview'}),/Service status is not requested for this workspace/);
 });
 test('status view uses returned component fields and does not invent a successful operation',()=>{
  const data={components:[{name:'FastAPI',status:'UNAVAILABLE'},{name:'Go gateway',status:'DEGRADED'}]};
@@ -146,14 +146,14 @@ const {AssetResearch}=await import('../src/components/AssetResearch.tsx');
 function renderInvestment(Component){const cache=new QueryClient({defaultOptions:{queries:{retry:false}}});try{return renderToStaticMarkup(h(QueryClientProvider,{client:cache},h(MemoryRouter,null,h(AppProvider,null,h(InvestorProvider,null,h(Component))))));}finally{cache.clear();}}
 test('REIT representation displays separate subtotal, exact yield, trading boundary and collateral exclusion',()=>{
  const html=renderToStaticMarkup(h(MemoryRouter,null,h(ReitHoldingsCard)));
- assert.match(html,/SIMULATED/);assert.match(html,/₹60,000.00/);assert.match(html,/7.20%/);assert.match(html,/6.40%/);
+ assert.match(html,/ILLUSTRATIVE/);assert.match(html,/₹60,000.00/);assert.match(html,/7.20%/);assert.match(html,/6.40%/);
  assert.match(html,/applicable exchange hours/);assert.match(html,/does not enable unrestricted 24\/7 trading/);
  assert.match(html,/Not eligible/);assert.match(html,/Consolidated live portfolio value: unavailable/);
 });
 test('income view separates projections and empty local payout history without invented settlement evidence',()=>{
  const html=renderInvestment(CurrentDistributions);
  assert.match(html,/Projected ANSH income/);assert.match(html,/Projected REIT income/);
- assert.match(html,/No simulated completed payouts yet/);assert.match(html,/not audited historical or record-date ownership/);
+ assert.match(html,/No illustrative distributions yet/);assert.match(html,/not audited historical or record-date ownership/);
  assert.doesNotMatch(html,/· SIMULATED COMPLETED|COMMITTED_VALID|ledger transaction ID/);
 });
 test('research distinguishes illustrative assumptions from sourced ledger observations',()=>{
