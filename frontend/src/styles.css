@@ -48,6 +48,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .premium-app .premium-sidebar>*{position:relative;z-index:1}
 .premium-app .premium-sidebar[class~="w-20"] .premium-brand-mark{width:2rem;height:2rem}
 .premium-app .premium-brand-mark{display:grid;height:2.7rem;width:2.7rem;place-items:center;border:1px solid rgba(245,215,142,.8);border-radius:.75rem;color:var(--premium-champagne);background:radial-gradient(circle,rgba(212,175,55,.25),transparent 70%);box-shadow:0 0 22px rgba(212,175,55,.25)}
+.premium-app .premium-logo,.premium-app .login-logo{display:block;background:#fff;object-fit:contain;border-radius:.35rem}.premium-app .premium-logo{height:4.35rem;width:12.5rem}.premium-app .login-logo{height:auto;width:min(20rem,100%)}
+.premium-app .premium-sidebar[class~="w-20"] .premium-logo{height:2.2rem;width:2.2rem}
 .premium-app .premium-nav-link{border:1px solid transparent;transition:all .2s ease}
 .premium-app .premium-nav-link[data-active="true"]{background:linear-gradient(90deg,rgba(212,175,55,.48),rgba(212,175,55,.08))!important;border-color:rgba(245,215,142,.78)!important;box-shadow:0 0 18px rgba(212,175,55,.12),inset 3px 0 #f5d78e}
 .premium-app .premium-nav-link[data-active="true"] svg{color:var(--premium-champagne)}

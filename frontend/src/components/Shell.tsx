@@ -35,7 +35,7 @@ export function Shell(){
   {open&&<button className="fixed inset-0 z-30 bg-black/70 lg:hidden" aria-label="Close navigation" onClick={()=>setOpen(false)}/>}
   <aside id="workspace-navigation" aria-label="Workspace navigation" className={'premium-sidebar fixed inset-y-0 left-0 z-40 flex flex-col text-white transition-all duration-200 lg:sticky lg:top-0 lg:h-screen '+(open?'visible translate-x-0':'invisible -translate-x-full lg:visible lg:translate-x-0')+' '+(collapsed?'w-20':'w-64')}>
    <div className="flex h-[7.4rem] items-center justify-between border-b border-white/10 px-5">
-    <NavLink to="/overview" className="flex min-w-0 items-center gap-3" onClick={()=>setOpen(false)}><span className="premium-brand-mark shrink-0">◈</span>{!collapsed&&<span className="login-brand whitespace-nowrap">Tok<span>ANSH</span></span>}</NavLink>
+    <NavLink to="/overview" className="flex min-w-0 items-center gap-3" onClick={()=>setOpen(false)}><img className="premium-logo" src="/images/tokansh-logo.png" alt="TokANSH" /></NavLink>
     <button className="text-[#f5d78e] lg:hidden" onClick={()=>setOpen(false)} aria-label="Close navigation"><X size={20}/></button>
    </div>
    <div className="relative z-10 overflow-y-auto px-3 py-5">
