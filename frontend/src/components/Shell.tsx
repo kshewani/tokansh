@@ -8,7 +8,7 @@ import {useApp} from '../app/context';
 import {ConnectedBoundary} from './ConnectedBoundary';
 type MenuItem={to:string;label:string;icon:LucideIcon;roles:Role[];section:string};
 const nav:MenuItem[]=[
- {to:'/overview',label:'Portfolio Overview',icon:LayoutDashboard,roles:['INVESTOR'],section:'Invest'},
+ {to:'/overview',label:'Dashboard',icon:LayoutDashboard,roles:['INVESTOR'],section:'Invest'},
  {to:'/marketplace',label:'Explore Assets',icon:Compass,roles:['INVESTOR'],section:'Invest'},
  {to:'/registry',label:'Create Property',icon:Building2,roles:['INVESTOR'],section:'Invest'},
  {to:'/portfolio',label:'My Portfolio',icon:Wallet,roles:['INVESTOR'],section:'Invest'},
