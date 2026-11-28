@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.auth import DemoIdentity, current_identity
 from app.errors import ApplicationError, success
 from app.properties.models import Property
+from app.properties.identity import display_symbol
 from app.registration import LedgerOperation
 from app.reservations import financing_reserved_quantity, offering_committed_quantity
 
@@ -74,9 +75,13 @@ class PortfolioService:
             base = {
                 "property_id": row.id,
                 "ansh_id": "ANSH-" + row.id.lower(),
+                "ansh_symbol": display_symbol(row.friendly_symbol, row.name),
                 "name": row.name,
                 "category": row.category,
                 "location": row.location,
+                "size": row.size_description,
+                "description": row.description,
+                "risk_profile": row.risk_profile,
                 "issuer_id": row.issuer_id,
                 "registration_status": "REGISTERED" if _registered(row, registration) else "NOT_REGISTERED",
                 "issuance_status": "UNAVAILABLE",

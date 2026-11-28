@@ -19,6 +19,14 @@ AARAV_ID = "00000000-0000-4000-8000-000000000003"
 MEERA_ID = "00000000-0000-4000-8000-000000000006"
 ISSUER_ID = "00000000-0000-4000-8000-000000000002"
 LENDER_ACTOR_ID = "00000000-0000-4000-8000-000000000004"
+SHOWCASE_INVESTORS = {
+    "rohan": ("Rohan", "00000000-0000-4000-8000-000000000007"),
+    "priya": ("Priya", "00000000-0000-4000-8000-000000000008"),
+    "vikram": ("Vikram", "00000000-0000-4000-8000-000000000009"),
+    "ananya": ("Ananya", "00000000-0000-4000-8000-000000000010"),
+    "neha": ("Neha", "00000000-0000-4000-8000-000000000011"),
+    "arjun": ("Arjun", "00000000-0000-4000-8000-000000000012"),
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,10 @@ INVESTOR_IDENTITIES = {
                            AARAV_ID),
     "meera": DemoIdentity("Meera", "Meera", "INVESTOR", MEERA_ID),
 }
+INVESTOR_IDENTITIES.update({
+    key: DemoIdentity(name, name, "INVESTOR", user_id)
+    for key, (name, user_id) in SHOWCASE_INVESTORS.items()
+})
 
 
 class LoginRequest(BaseModel):

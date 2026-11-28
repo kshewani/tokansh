@@ -12,6 +12,7 @@ class Property(Base):
         CheckConstraint("proposed_supply > 0", name="ck_property_supply_positive"),
         CheckConstraint("status = 'DRAFT'", name="ck_m2_property_draft_only"),
         CheckConstraint("currency = 'INR'", name="ck_property_currency"),
+        Index("uq_properties_friendly_symbol", "friendly_symbol", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -23,6 +24,10 @@ class Property(Base):
     issue_price_minor: Mapped[int] = mapped_column(BigInteger)
     currency: Mapped[str] = mapped_column(String(3))
     issuer_id: Mapped[str] = mapped_column(String(36))
+    friendly_symbol: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    size_description: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    risk_profile: Mapped[str | None] = mapped_column(String(240), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")
     created_at: Mapped[str] = mapped_column(String(32), index=True)
 

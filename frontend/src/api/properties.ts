@@ -6,6 +6,10 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export const DEFAULT_INITIAL_PRICE_MINOR=100000;
 export const DEFAULT_INITIAL_PRICE_RUPEES='1000';
 export const propertyTokenId=(propertyId:string)=>`ANSH-${propertyId.trim().toLowerCase()}`;
+export const propertyDisplaySymbol=(propertyId:string,symbol?:string|null)=>{
+ const normalized=typeof symbol==='string'?symbol.trim().toUpperCase():'';
+ return /^ANSH-[A-Z0-9-]+$/.test(normalized)?normalized:propertyTokenId(propertyId);
+};
 
 function malformed():never{throw new RequestError(200,'MALFORMED_RESPONSE','The API returned an invalid property or issuance record.');}
 function integer(value:unknown):value is number{return typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;}
@@ -15,6 +19,10 @@ export function parseProperty(value:unknown):PropertyRecord{
   typeof value.location!=='string'||typeof value.category!=='string'||typeof value.valuation!=='string'||
   !integer(value.proposed_supply)||!integer(value.approved_supply)||typeof value.unit_price!=='string'||
   value.currency!=='INR'||typeof value.status!=='string'||typeof value.issuer_id!=='string'||
+  (value.ansh_symbol!==undefined&&(typeof value.ansh_symbol!=='string'||!/^ANSH-[A-Z0-9-]+$/.test(value.ansh_symbol)))||
+  (value.size!==undefined&&value.size!==null&&typeof value.size!=='string')||
+  (value.description!==undefined&&value.description!==null&&typeof value.description!=='string')||
+  (value.risk_profile!==undefined&&value.risk_profile!==null&&typeof value.risk_profile!=='string')||
   typeof value.verification_status!=='string'||!['NOT_REGISTERED','REGISTERED'].includes(String(value.ledger_registration_status))||
   (value.ledger_transaction_id!==null&&typeof value.ledger_transaction_id!=='string'))return malformed();
  return value as PropertyRecord;
@@ -76,6 +84,7 @@ export function parsePortfolio(value:unknown,investorId:string):PortfolioRecord{
   !(aggregate.valuation_basis===null||aggregate.valuation_basis==='INITIAL_ISSUE_PRICE'))return malformed();
  const items=value.items.map(item=>{
   if(!isRecord(item)||typeof item.property_id!=='string'||!uuid.test(item.property_id)||item.ansh_id!==propertyTokenId(item.property_id)||
+   (item.ansh_symbol!==undefined&&(typeof item.ansh_symbol!=='string'||!/^ANSH-[A-Z0-9-]+$/.test(item.ansh_symbol)))||
    typeof item.name!=='string'||typeof item.category!=='string'||typeof item.location!=='string'||typeof item.issuer_id!=='string'||!uuid.test(item.issuer_id)||
    !['REGISTERED','NOT_REGISTERED'].includes(String(item.registration_status))||!issuance.includes(String(item.issuance_status))||
    !/^[0-9]+$/.test(String(item.approved_valuation_minor))||!/^[1-9][0-9]*$/.test(String(item.initial_issue_price_minor))||item.currency!=='INR'||

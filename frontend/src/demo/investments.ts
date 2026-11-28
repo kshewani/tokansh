@@ -5,6 +5,21 @@ export const reitHoldings:readonly ReitHolding[]=[
  {id:'SIM-REIT-OFFICE',asset_class:'REIT',fund_name:'Illustrative Indian REIT · Offices',units:125,nav_minor:'32000',quarterly_distribution_minor:'576',category:'Commercial offices',representation:'SIMULATED'},
  {id:'SIM-REIT-LOGISTICS',asset_class:'REIT',fund_name:'Illustrative Logistics REIT',units:80,nav_minor:'25000',quarterly_distribution_minor:'400',category:'Logistics & industrial',representation:'SIMULATED'}
 ];
+const meeraReitHoldings:readonly ReitHolding[]=[
+ ...reitHoldings,
+ {id:'SIM-REIT-RETAIL',asset_class:'REIT',fund_name:'Illustrative Retail REIT',units:90,nav_minor:'18000',quarterly_distribution_minor:'270',category:'Retail centres',representation:'SIMULATED'},
+ {id:'SIM-REIT-INDUSTRIAL',asset_class:'REIT',fund_name:'Illustrative Industrial Fund',units:60,nav_minor:'22000',quarterly_distribution_minor:'352',category:'Industrial property',representation:'SIMULATED'},
+];
+const aaravReitHoldings:readonly ReitHolding[]=[
+ {id:'SIM-REIT-OFFICE',asset_class:'REIT',fund_name:'Illustrative Indian REIT · Offices',units:70,nav_minor:'32000',quarterly_distribution_minor:'576',category:'Commercial offices',representation:'SIMULATED'},
+ {id:'SIM-REIT-LOGISTICS',asset_class:'REIT',fund_name:'Illustrative Logistics REIT',units:120,nav_minor:'25000',quarterly_distribution_minor:'400',category:'Logistics & industrial',representation:'SIMULATED'},
+ {id:'SIM-REIT-RETAIL',asset_class:'REIT',fund_name:'Illustrative Retail REIT',units:55,nav_minor:'18000',quarterly_distribution_minor:'270',category:'Retail centres',representation:'SIMULATED'},
+];
+export function reitHoldingsFor(holderId?:string):readonly ReitHolding[]{
+ if(holderId?.endsWith('000000000006'))return meeraReitHoldings;
+ if(holderId?.endsWith('000000000003'))return aaravReitHoldings;
+ return reitHoldings;
+}
 const minor=(v:unknown):v is string=>typeof v==='string'&&/^(0|[1-9][0-9]*)$/.test(v);
 const units=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
 const instant=(v:unknown):v is string=>typeof v==='string'&&Number.isFinite(Date.parse(v));
@@ -36,11 +51,11 @@ export type SimulatedPayout=IncomeSnapshot&{status:'SIMULATED_COMPLETED';complet
 export function incomeSnapshot(id:string,holder:string,property:string,quantity:number,rate:string,observedAt:string,source:IncomeSnapshot['ownership_source']):IncomeSnapshot{
  if(!instant(observedAt))throw new Error('Snapshot time is unavailable.');
  const lines:IncomeLine[]=[{asset_id:property,asset_class:'ANSH',label:'TechPark One · ANSH',units:quantity,rate_minor:rate,entitlement_minor:entitlement(quantity,rate)},
-  ...reitHoldings.map(f=>({asset_id:f.id,asset_class:'REIT' as const,label:f.fund_name,units:f.units,rate_minor:f.quarterly_distribution_minor,entitlement_minor:entitlement(f.units,f.quarterly_distribution_minor)}))];
+  ...reitHoldingsFor(holder).map(f=>({asset_id:f.id,asset_class:'REIT' as const,label:f.fund_name,units:f.units,rate_minor:f.quarterly_distribution_minor,entitlement_minor:entitlement(f.units,f.quarterly_distribution_minor)}))];
  return {id,holder_id:holder,observed_at:observedAt,ownership_source:source,lines,total_minor:String(lines.reduce((sum,line)=>sum+BigInt(line.entitlement_minor),0n))};
 }
 function validatePayout(value:unknown,holder:string,property:string,source:IncomeSnapshot['ownership_source']):SimulatedPayout{
- if(!isRecord(value)||typeof value.id!=='string'||!/^[0-9a-f-]{36}$/.test(value.id)||value.holder_id!==holder||value.ownership_source!==source||value.status!=='SIMULATED_COMPLETED'||!instant(value.observed_at)||!instant(value.completed_at)||Date.parse(value.completed_at)<Date.parse(value.observed_at)||!Array.isArray(value.lines)||value.lines.length!==3)throw new Error('Invalid browser simulation history.');
+ if(!isRecord(value)||typeof value.id!=='string'||!/^[0-9a-f-]{36}$/.test(value.id)||value.holder_id!==holder||value.ownership_source!==source||value.status!=='SIMULATED_COMPLETED'||!instant(value.observed_at)||!instant(value.completed_at)||Date.parse(value.completed_at)<Date.parse(value.observed_at)||!Array.isArray(value.lines)||value.lines.length!==reitHoldingsFor(holder).length+1)throw new Error('Invalid browser simulation history.');
  const line=value.lines[0];
  if(!isRecord(line)||!units(line.units)||!minor(line.rate_minor))throw new Error('Invalid browser simulation history.');
  const expected=incomeSnapshot(value.id,holder,property,line.units,line.rate_minor,value.observed_at,source);

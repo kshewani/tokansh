@@ -8,7 +8,7 @@ class Base(DeclarativeBase):
     pass
 
 
-SCHEMA_REVISION = "0004_marketplace"
+SCHEMA_REVISION = "0005_showcase_metadata"
 
 
 class Database:

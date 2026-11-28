@@ -16,6 +16,10 @@ class NewProperty(BaseModel):
     proposed_supply: Annotated[int, Field(strict=True, gt=0, le=9_007_199_254_740_991)]
     issue_price: MoneyString | None = None
     currency: Literal["INR"]
+    friendly_symbol: Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9-]{1,31}$")] | None = None
+    size: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)] | None = None
+    description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)] | None = None
+    risk_profile: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)] | None = None
 
     @field_validator("valuation", "issue_price")
     @classmethod
@@ -39,6 +43,10 @@ class PropertyRead(BaseModel):
     unit_price: str
     currency: Literal["INR"]
     issuer_id: str
+    ansh_symbol: str
+    size: str | None = None
+    description: str | None = None
+    risk_profile: str | None = None
     status: Literal["DRAFT"]
     verification_status: Literal["NOT_VERIFIED"] = "NOT_VERIFIED"
     ledger_registration_status: Literal["NOT_REGISTERED", "REGISTERED"] = "NOT_REGISTERED"

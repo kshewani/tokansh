@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApplicationError
 from app.properties.models import ApplicationOperation, Property, PropertyEvent
+from app.properties.identity import allocate_symbol, display_symbol
 from app.properties.repository import PropertyRepository
 from app.properties.schemas import NewProperty, PropertyRead
 from app.registration import LedgerOperation
@@ -36,6 +37,8 @@ def property_read(record: Property, registration: LedgerOperation | None = None)
         valuation=format(Decimal(record.valuation_minor) / 100, ".2f"), proposed_supply=record.proposed_supply,
         unit_price=format(Decimal(record.issue_price_minor) / 100, ".2f"), currency=record.currency,
         issuer_id=record.issuer_id, status=record.status, approved_supply=approved_supply,
+        ansh_symbol=display_symbol(record.friendly_symbol, record.name), size=record.size_description,
+        description=record.description, risk_profile=record.risk_profile,
         ledger_registration_status=ledger_status, ledger_transaction_id=transaction_id,
         created_at=record.created_at,
     ).model_dump()
@@ -88,7 +91,10 @@ class PropertyService:
                 record = Property(id=str(uuid4()), name=command.name, location=command.location,
                     category=command.category, valuation_minor=int(Decimal(command.valuation) * 100),
                     proposed_supply=command.proposed_supply, issue_price_minor=price_minor,
-                    currency=command.currency, issuer_id=actor_id, status="DRAFT", created_at=now)
+                    currency=command.currency, issuer_id=actor_id,
+                    friendly_symbol=allocate_symbol(self.session, command.name, command.friendly_symbol),
+                    size_description=command.size, description=command.description,
+                    risk_profile=command.risk_profile, status="DRAFT", created_at=now)
                 self.session.add(record)
                 self.session.flush()
                 self.session.add(PropertyEvent(id=str(uuid4()), property_id=record.id, operation_id=operation.id,
