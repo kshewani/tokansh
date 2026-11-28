@@ -17,7 +17,7 @@ export type PropertyPreview={id:string;name:string;location:string;type:string;v
 export type HoldingPreview={owned:number;pledged:number;available:number;acquisitionValue:string;indicativeValue:string;source:'UI_PREVIEW';asOf:string};
 export type EventPreview={id:string;actor:Role;kind:string;description:string;appStatus:'PREVIEW_ONLY';ledger:LedgerEvidence;time:string};
 export const ledgerUnavailable:LedgerEvidence={state:'NOT_CONNECTED',transactionId:null,verified:false,source:'UI_PREVIEW'};
-export const propertyImage='https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1300&q=80';
+export const propertyImage='/images/properties/property-fallback.svg';
 export const sample={
   id:'TECHPARK-ONE',name:'TechPark One',location:'Bengaluru, Karnataka',type:'Commercial office',
   valuation:'1000000000',approvedSupply:100000,unitPrice:'10000',issuer:'Meera · Demo issuer',

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {existsSync,readFileSync} from 'node:fs';
 import {scenarioProperty,scenarioHoldings,scenarioEvents,scenarioEntitlement,inr,phases,ledgerUnavailable} from '../src/demo/scenario.ts';
+import {propertyImageFor} from '../src/demo/propertyImages.ts';
 
 test('onboarding starts without registered, committed or issued assets',()=>{
  const p=scenarioProperty('ONBOARDING'),h=scenarioHoldings('ONBOARDING');
@@ -29,4 +31,19 @@ test('preview states never fabricate committed DRUNIX evidence',()=>{
   assert.equal(e.appStatus,'PREVIEW_ONLY');assert.equal(e.ledger.verified,false);assert.equal(e.ledger.transactionId,null);
  }}
  assert.equal(ledgerUnavailable.state,'NOT_CONNECTED');
+});
+
+test('showcase photographs resolve by stable friendly symbol with a safe fallback',()=>{
+ assert.match(propertyImageFor({symbol:'ANSH-OAK',name:'Silver Oak Residential Plot'}),/silver-oak\.webp$/);
+ assert.match(propertyImageFor({symbol:'ANSH-GREEN',name:'Green Acres Farmland'}),/green-acres\.webp$/);
+ assert.equal(propertyImageFor({symbol:'ANSH-UNKNOWN',name:'Uncatalogued Property'}),'/images/properties/property-fallback.svg');
+ assert.equal(existsSync('public/images/properties/silver-oak.webp'),true);
+ assert.equal(existsSync('public/images/properties/property-fallback.svg'),true);
+});
+
+test('sidebar collapse control exposes the approved direction and accessible labels',()=>{
+ const source=readFileSync(new URL('../src/components/Shell.tsx',import.meta.url),'utf8');
+ assert.match(source,/collapsed\?<ChevronRight/);
+ assert.match(source,/:<ChevronLeft/);
+ assert.match(source,/aria-label=\{collapsed\?'Expand sidebar':'Collapse sidebar'\}/);
 });

@@ -1,5 +1,5 @@
 import {Navigate} from 'react-router-dom';
-import {CashSummary,InvestorWelcome,RecentActivity} from './Workspace';
+import {CashSummary,InvestorWelcome} from './Workspace';
 import {ReitHoldingsCard} from '../components/ReitHoldings';
 import {BarChart3,Building2,CheckCircle2,ChevronRight,FileClock,Landmark,PackageCheck,ShieldAlert,ShoppingCart,Wallet} from 'lucide-react';
 import {Link} from 'react-router-dom';
@@ -12,7 +12,7 @@ import {Status} from '../components/ui/status';
 import {Button} from '../components/ui/button';
 const trend=[{month:'Jun',value:95},{month:'Jul',value:96},{month:'Aug',value:97},{month:'Sep',value:98},{month:'Oct',value:99},{month:'Nov',value:100}];
 function QuickLink({to,label}:{to:string;label:string}){return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;}
-export function Overview(){const {mode,role}=useApp();return role==='LENDER'?<Navigate to="/lending" replace/>:<><InvestorWelcome/><div className="mb-5"><CashSummary/></div>{mode==='real'?<><ConnectedPortfolio dashboard/><RecentActivity/></>:<PreviewOverview/>}</>;}
+export function Overview(){const {mode,role}=useApp();if(role==='LENDER')return <Navigate to="/lending" replace/>;return mode==='real'?<ConnectedPortfolio dashboard/>:<><InvestorWelcome/><div className="mb-5"><CashSummary/></div><PreviewOverview/></>;}
 function PreviewOverview(){
  const {role,phase,property,holding,events}=usePreview();
  const isIssuer=role==='ISSUER',isLender=role==='LENDER';

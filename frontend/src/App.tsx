@@ -19,7 +19,7 @@ import {Distributions,Audit,Intelligence,System} from './pages/Supporting';
 /** UI navigation only. Production identity and authorization belong to Python APIs. */
 function RequireDemoSession(){
  const {demoSession,authStatus}=useApp();
- if(authStatus==='loading')return <main className="flex min-h-screen items-center justify-center bg-[#F4F6F9] text-sm text-slate-500">Validating session…</main>;
+ if(authStatus==='loading')return <main className="premium-app flex min-h-screen items-center justify-center text-sm text-slate-500">Validating session…</main>;
  return demoSession&&authStatus==='authenticated'?<Outlet/>:<Navigate to="/login" replace/>;
 }
 function Guard({roles,children}:{roles:Role[];children:ReactNode}){
@@ -44,9 +44,9 @@ function Login(){
   catch(value){setError(value instanceof Error?value.message:'Unable to sign in to the workspace.');}
   finally{setBusy(false);}
  }
- return <main className="grid min-h-screen grid-cols-1 bg-[#F4F6F9] lg:grid-cols-[.9fr_1.1fr]">
-  <section className="flex min-h-[290px] flex-col justify-between bg-[#102B4E] px-7 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
-   <div className="flex items-center gap-3 text-xl font-extrabold tracking-tight"><span className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-300/40 bg-blue-400/10 text-3xl text-blue-200">◈</span><span>Tok<span className="text-blue-200">ANSH</span></span></div>
+ return <main className="premium-app login-surface grid min-h-screen grid-cols-1 lg:grid-cols-[.9fr_1.1fr]">
+  <section className="login-surface flex min-h-[290px] flex-col justify-between px-7 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
+   <div className="flex items-center gap-3"><span className="premium-brand-mark">◈</span><span className="login-brand">Tok<span>ANSH</span></span></div>
    <div className="max-w-lg py-8 lg:py-20"><p className="text-xs font-bold uppercase tracking-[.18em] text-blue-200">DRUNIX Hackathon 2026</p>
     <h1 className="mt-5 text-3xl font-extrabold leading-tight text-white sm:text-4xl lg:text-5xl">Unlocking Real Estate,<br/><span className="text-blue-200">One Ansh at a Time.</span></h1>
     <p className="mt-5 max-w-md text-sm leading-7 text-blue-100/80">A professional workspace for fractional real estate interests, portfolio visibility, issuance, collateral and lifecycle tracking.</p>
@@ -54,13 +54,13 @@ function Login(){
    </div>
    <p className="text-xs text-blue-100/60">{mode==='preview'?'Illustrative workspace · No real payments or ledger operations':'DRUNIX-backed ownership observations · illustrative financial workflows'}</p>
   </section>
-  <section className="flex items-center justify-center px-5 py-9 sm:px-8 lg:p-12">
+  <section className="login-surface flex items-center justify-center px-5 py-9 sm:px-8 lg:p-12">
    <div className="w-full max-w-[470px]">
-    <div className="mb-8 flex items-center justify-end gap-2"><button type="button" className="rounded-lg bg-[#102B4E] px-4 py-2 text-xs font-bold text-white" aria-current="page">Login</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-[#102B4E]" onClick={()=>{}}>Register</button></div>
-    <p className="mb-2 text-xs font-bold uppercase tracking-[.14em] text-[#607D9B]">TokANSH / Account Access</p>
+    <div className="mb-8 flex items-center justify-end gap-2"><button type="button" className="premium-button rounded-lg bg-[#102B4E] px-4 py-2 text-xs font-bold text-white" aria-current="page">Login</button><button type="button" className="premium-button rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-[#102B4E]" onClick={()=>{}}>Register</button></div>
+    <p className="gold-kicker mb-2">TokANSH / Account Access</p>
     <h2 className="text-2xl font-extrabold text-[#102B4E]">Sign in to your workspace</h2>
     <p className="mb-7 mt-2 text-sm leading-6 text-slate-500">Choose an account to access the approved investment workflows.</p>
-    <Card>
+    <Card className="login-panel">
      <form onSubmit={enter}>
       <fieldset className="space-y-3"><legend className="mb-3 text-sm font-bold text-[#102B4E]">Choose an account</legend>
        {roleOptions.map(item=><label key={item.role} className={'flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors '+(selectedRole===item.role?'border-[#1769AA] bg-blue-50':'border-slate-200 bg-white hover:border-blue-300')}>
