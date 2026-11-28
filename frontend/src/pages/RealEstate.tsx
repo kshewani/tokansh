@@ -2,8 +2,9 @@ import {useState} from 'react';
 import {ArrowRight} from 'lucide-react';
 import {useApi, useApp} from '../app/context';
 import {route} from '../api/contracts';
-import type {Issuance, Listing, Order, Page, Property} from '../api/contracts';
-import {inr, integer, multiplyAmount, shortRef, when} from '../lib/format';
+import type {Issuance, Listing, Order, Page, Property, Wallet} from '../api/contracts';
+import {propertyImageFor} from '../demo/propertyImages';
+import {inr, integer, multiplyAmount, shortRef, toPaise, when} from '../lib/format';
 import {Button} from '../components/ui/button';
 import {Card, EmptyState, Metric, SectionHeading} from '../components/ui/card';
 import {ReviewDialog} from '../components/ui/dialog';
@@ -13,6 +14,12 @@ import {LedgerRef, Loading, QueryError, Status} from '../components/ui/status';
 const blank = {name: 'TechPark One', property_type: 'COMMERCIAL_OFFICE', address: 'Demo Address, Whitefield', city: 'Bengaluru',
   country: 'India', valuation: '1000000000', proposed_supply: 100000, issue_price: '10000', description: 'Synthetic Grade-A office campus.'};
 const money = /^\d{1,15}(\.\d{1,2})?$/;
+
+/** Presentation-only thumbnail; the canonical identity stays the property UUID. */
+export function PropertyThumb({name, symbol}: {name: string; symbol?: string | null}) {
+  return <img className="h-10 w-14 shrink-0 rounded-md bg-slate-100 object-cover" src={propertyImageFor({symbol, name})} alt=""
+    loading="lazy" width={56} height={40}/>;
+}
 
 export function useProperties() {
   return useApi<Page<Property>>(route.properties + '?page_size=100');
@@ -77,7 +84,7 @@ export function Registry() {
           : <div className="data-table-wrap"><table className="data-table w-full">
             <thead><tr><th>Property</th><th className="money">Supply</th><th>Approval</th><th>DRUNIX registration</th><th>Actions</th></tr></thead>
             <tbody>{items.map(p => <tr key={p.id}>
-              <td><p className="font-semibold">{p.name}</p><p className="text-[11px] text-slate-500">{p.city} · {inr(p.valuation, true)} · {inr(p.issue_price)}/ANSH</p>
+              <td><div className="flex items-center gap-3"><PropertyThumb name={p.name} symbol={p.ansh_symbol}/><div><p className="font-semibold">{p.name}</p><p className="text-[11px] text-slate-500">{p.ansh_symbol} · {p.city} · {inr(p.valuation, true)} · {inr(p.issue_price)}/ANSH</p></div></div>
                 {p.ledger.approved_property_ref && <code className="text-[10px] text-slate-500">{p.ledger.approved_property_ref}</code>}</td>
               <td className="money">{integer(p.approved_supply ?? p.proposed_supply)}<p className="text-[10px] text-slate-400">{p.approved_supply ? 'approved' : 'proposed'}</p></td>
               <td><Status value={p.approval_status}/></td>
@@ -115,8 +122,8 @@ export function Issuance() {
   const eligible = (props.data?.items ?? []).filter(p => p.approval_status === 'APPROVED' && p.ledger.registered && p.issuance?.status !== 'CONFIRMED');
   const [propertyId, setPropertyId] = useState('');
   const selected = eligible.find(p => p.id === propertyId) ?? eligible[0];
-  const [quantity, setQuantity] = useState<number | ''>('');
-  const qty = quantity === '' ? selected?.approved_supply ?? 0 : quantity;
+  // One-time full-supply issuance (chaincode policy ONE_TIME_FULL_SUPPLY_ISSUANCE): quantity is the approved supply.
+  const qty = selected?.approved_supply ?? 0;
   const [open, setOpen] = useState<null | 'issue' | Issuance>(null);
   const [listQty, setListQty] = useState(100000);
   const valid = !!selected && Number.isSafeInteger(qty) && qty > 0 && qty <= (selected.approved_supply ?? 0);
@@ -132,14 +139,12 @@ export function Issuance() {
   return <>
     <SectionHeading title="ANSH Issuance" description="Issue only against an approved property whose DRUNIX registration has committed. Issued supply counts only after the IssueANSH commit."/>
     <div className="grid gap-5 xl:grid-cols-[1fr_1.4fr]">
-      <Card title="Initiate issuance" description="Quantity cannot exceed the approved supply (also enforced by the backend and chaincode)">
+      <Card title="Initiate issuance" description="ANSH is issued once per property, for exactly the approved supply (enforced by the backend and chaincode)">
         {!eligible.length ? <EmptyState title="No property ready for issuance" description="A property must be approved and its DRUNIX registration committed."/> :
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (valid) setOpen('issue'); }}>
-            <SelectField label="Property" id="issue-prop" value={selected?.id} onChange={e => { setPropertyId(e.target.value); setQuantity(''); }}>
+            <SelectField label="Property" id="issue-prop" value={selected?.id} onChange={e => setPropertyId(e.target.value)}>
               {eligible.map(p => <option key={p.id} value={p.id}>{p.name} · {p.ledger.approved_property_ref}</option>)}</SelectField>
-            <Field id="issue-quantity" label="Quantity (ANSH)" type="number" min={1} max={selected?.approved_supply ?? undefined} step={1}
-              value={qty} onChange={e => setQuantity(e.target.value ? Number(e.target.value) : '')}
-              error={selected && qty > (selected.approved_supply ?? 0) ? 'Exceeds the approved supply' : undefined}/>
+            <Field id="issue-quantity" label="Quantity (ANSH): full approved supply" type="number" value={qty} readOnly aria-readonly="true"/>
             <dl><DataRow label="Approved supply" value={integer(selected?.approved_supply)}/><DataRow label="Issue price" value={inr(selected?.issue_price)}/>
               <DataRow label="Issuance value" value={inr(multiplyAmount(qty, selected?.issue_price ?? ''))}/>
               <DataRow label="Registration tx" value={<code title={selected?.ledger.registration_transaction_id ?? ''}>{shortRef(selected?.ledger.registration_transaction_id, 14)}</code>}/></dl>
@@ -177,6 +182,7 @@ export function Marketplace() {
   const {role, run, submitting} = useApp();
   const listings = useApi<Page<Listing>>(route.listings + '?page_size=100');
   const orders = useApi<Page<Order>>(route.orders + '?page_size=50');
+  const cash = useApi<Wallet>(role === 'INVESTOR' ? route.wallet : null);
   const [listingId, setListingId] = useState('');
   const items = listings.data?.items ?? [];
   const listing = items.find(l => l.id === listingId) ?? items[0];
@@ -185,6 +191,8 @@ export function Marketplace() {
   const [outcome, setOutcome] = useState<'SUCCESS' | 'FAILED'>('SUCCESS');
   const isInvestor = role === 'INVESTOR';
   const valid = !!listing && Number.isSafeInteger(quantity) && quantity > 0 && quantity <= listing.remaining_quantity;
+  const balance = toPaise(cash.data?.balance);
+  const short = (amount: string | null | undefined) => balance !== null && (toPaise(amount) ?? 0n) > balance;
 
   async function confirm() {
     if (stage === 'order' && listing) {
@@ -207,8 +215,9 @@ export function Marketplace() {
           : <div className="data-table-wrap"><table className="data-table w-full">
             <thead><tr><th>Asset</th><th>Seller</th><th className="money">Remaining</th><th className="money">Price</th><th>Status</th></tr></thead>
             <tbody>{items.map(l => <tr key={l.id} className={l.id === listing?.id ? 'bg-blue-50/50' : ''}>
-              <td><button className="text-left font-semibold text-[#1769AA] hover:underline" onClick={() => setListingId(l.id)}>{l.property.name}</button>
-                <p className="text-[11px] text-slate-500">{l.property.city} · {l.property.property_type.replaceAll('_', ' ').toLowerCase()}</p></td>
+              <td><div className="flex min-w-[240px] items-center gap-3"><PropertyThumb name={l.property.name} symbol={l.ansh_symbol}/><div>
+                <button className="text-left font-semibold text-[#1769AA] hover:underline" onClick={() => setListingId(l.id)}>{l.property.name}</button>
+                <p className="text-[11px] text-slate-500">{l.ansh_symbol} · {l.property.city} · {l.property.property_type.replaceAll('_', ' ').toLowerCase()}</p></div></div></td>
               <td>{l.seller.name}</td><td className="money">{integer(l.remaining_quantity)}</td><td className="money">{inr(l.unit_price)}</td>
               <td><Status value={l.status}/></td></tr>)}</tbody></table></div>}
       </Card>
@@ -219,7 +228,10 @@ export function Marketplace() {
             <Field id="order-quantity" label="Quantity (ANSH)" type="number" min={1} max={listing.remaining_quantity} step={1} value={quantity}
               onChange={e => setQuantity(Number(e.target.value))} error={quantity > listing.remaining_quantity ? 'Exceeds remaining listing quantity' : undefined}/>
             <dl><DataRow label="Price / ANSH" value={inr(listing.unit_price)}/><DataRow label="Estimated amount" value={inr(multiplyAmount(quantity, listing.unit_price))}/>
-              <DataRow label="Authoritative amount" value="Calculated by the backend"/></dl>
+              <DataRow label="Authoritative amount" value="Calculated by the backend"/>
+              <DataRow label="Demo wallet balance (simulated)" value={inr(cash.data?.balance)}/></dl>
+            {valid && short(multiplyAmount(quantity, listing.unit_price)) && <p className="text-xs text-amber-800" role="status">
+              Not enough demo cash for this order. Add demo funds on the Overview or Portfolio page.</p>}
             <Button type="submit" disabled={!valid || submitting}>Review order <ArrowRight size={15}/></Button>
           </form>}
       </Card>}
@@ -240,11 +252,14 @@ export function Marketplace() {
     </Card>
     <ReviewDialog open={!!stage} onOpenChange={v => !v && setStage(null)} onConfirm={confirm} busy={submitting}
       title={stage === 'order' ? 'Review purchase order' : 'Simulated payment'} confirmLabel={stage === 'order' ? 'Place order' : 'Run simulated payment'}
-      description={stage === 'order' ? 'Placing an order does not take payment or move ownership.' : 'SIMULATED payment. On success the backend submits TransferANSH to DRUNIX; on failure no transfer is submitted.'}>
+      description={stage === 'order' ? 'Placing an order does not take payment or move ownership.' : 'SIMULATED payment from demo cash. On success the backend submits TransferANSH to DRUNIX; the seller is credited only after the commit, and a failed transfer refunds you. On a declined payment no transfer is submitted.'}>
       {stage === 'order' && listing && <dl><DataRow label="Asset" value={listing.property.name}/><DataRow label="Quantity" value={integer(quantity) + ' ANSH'}/>
         <DataRow label="Estimated amount" value={inr(multiplyAmount(quantity, listing.unit_price))}/></dl>}
       {stage && stage !== 'order' && <><dl><DataRow label="Order" value={stage.property_name + ' · ' + integer(stage.quantity) + ' ANSH'}/>
-        <DataRow label="Amount (backend)" value={inr(stage.total_amount)}/></dl>
+        <DataRow label="Amount (backend)" value={inr(stage.total_amount)}/>
+        <DataRow label="Paid from" value={'Demo wallet (simulated) · balance ' + inr(cash.data?.balance)}/></dl>
+        {outcome === 'SUCCESS' && short(stage.total_amount) && <p className="mt-2 text-xs text-amber-800" role="status">
+          Not enough demo cash: the backend will refuse this payment. Add demo funds first.</p>}
         <fieldset className="mt-3 space-y-2"><legend className="mb-1 text-xs font-semibold text-[#102B4E]">Payment simulator outcome</legend>
           {(['SUCCESS', 'FAILED'] as const).map(o => <label key={o} className="flex items-center gap-2 text-sm">
             <input type="radio" name="pay-outcome" checked={outcome === o} onChange={() => setOutcome(o)}/>{o === 'SUCCESS' ? 'Payment succeeds' : 'Payment fails (no transfer)'}</label>)}

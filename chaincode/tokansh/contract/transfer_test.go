@@ -16,7 +16,7 @@ func transferCommand() TransferCommand {
 	return TransferCommand{1, "70000000-0000-4000-8000-000000000001", command().PropertyID, command().IssuerID, investorA, 4}
 }
 func transferSetup(t *testing.T) (*SmartContract, *contractapi.TransactionContext, *testStub, *testIdentity) {
-	cc, ctx, stub, id := issuanceSetup(t, 100)
+	cc, ctx, stub, id := issuanceSetup(t, 10)
 	c := issuanceCommand()
 	c.Quantity = 10
 	mustIssue(t, cc, ctx, stub, c)
@@ -144,7 +144,7 @@ func TestTransferIdenticalAndConflictingReplay(t *testing.T) {
 		t.Fatal("conflict wrote state")
 	}
 }
-func TestTransferConservationAndSubsequentIssuance(t *testing.T) {
+func TestTransferConservationAndNoSubsequentIssuance(t *testing.T) {
 	cc, ctx, stub, _ := transferSetup(t)
 	before := append([]byte(nil), stub.state[issuanceKey(t, "issuance", command().PropertyID)]...)
 	c := transferCommand()
@@ -158,22 +158,56 @@ func TestTransferConservationAndSubsequentIssuance(t *testing.T) {
 	if quantity(t, cc, ctx, command().IssuerID) != 0 || quantity(t, cc, ctx, investorA)+quantity(t, cc, ctx, investorB) != 10 || !reflect.DeepEqual(before, stub.state[issuanceKey(t, "issuance", command().PropertyID)]) {
 		t.Fatal("supply not conserved")
 	}
-	// Further issuance goes into current inventory, not the cumulative counter.
+	// A completed property cannot receive additional issuance.
 	issued := issuanceCommand()
 	issued.OperationID = "50000000-0000-4000-8000-000000000002"
 	issued.Quantity = 5
 	stub.txID = "test-only-later-issuance"
-	r := mustIssue(t, cc, ctx, stub, issued)
-	if r.CumulativeIssuedSupply != 15 || r.RemainingIssuanceCapacity != 85 || r.IssuerBalance != 5 {
-		t.Fatal(r)
+	if _, e := invokeIssuance(cc, ctx, stub, issuanceJSON(t, issued)); e == nil {
+		t.Fatal("subsequent issuance unexpectedly succeeded")
 	}
-	if _, e := cc.GetIssuanceOperation(ctx, issued.OperationID); e != nil {
-		t.Fatal(e)
-	}
-	if quantity(t, cc, ctx, command().IssuerID)+quantity(t, cc, ctx, investorA)+quantity(t, cc, ctx, investorB) != 15 {
-		t.Fatal("issuance after transfer lost units")
+	if quantity(t, cc, ctx, command().IssuerID)+quantity(t, cc, ctx, investorA)+quantity(t, cc, ctx, investorB) != 10 {
+		t.Fatal("transfer changed issued supply")
 	}
 }
+
+func TestTransferCannotDebitAnotherProperty(t *testing.T) {
+	cc, ctx, stub, _ := setup(t)
+	first := command()
+	first.ApprovedSupply = 5
+	if _, err := invoke(cc, ctx, stub, raw(first)); err != nil {
+		t.Fatal(err)
+	}
+	second := command()
+	second.OperationID = "10000000-0000-4000-8000-000000000002"
+	second.PropertyID = "20000000-0000-4000-8000-000000000002"
+	second.IssuerID = "30000000-0000-4000-8000-000000000002"
+	second.ApprovedSupply = 5
+	if _, err := invoke(cc, ctx, stub, raw(second)); err != nil {
+		t.Fatal(err)
+	}
+
+	firstIssue := issuanceCommand()
+	firstIssue.Quantity = 5
+	mustIssue(t, cc, ctx, stub, firstIssue)
+	secondIssue := issuanceCommand()
+	secondIssue.OperationID = "50000000-0000-4000-8000-000000000002"
+	secondIssue.PropertyID = second.PropertyID
+	secondIssue.Quantity = 5
+	mustIssue(t, cc, ctx, stub, secondIssue)
+
+	transfer := TransferCommand{1, "70000000-0000-4000-8000-000000000005", second.PropertyID, first.IssuerID, investorA, 1}
+	before := ledgerSnapshot(stub)
+	_, err := invokeTransfer(cc, ctx, stub, transferJSON(t, transfer))
+	assertCode(t, err, "INSUFFICIENT_BALANCE")
+	if !reflect.DeepEqual(before, stub.state) {
+		t.Fatal("cross-property transfer changed ledger")
+	}
+	if balance, err := cc.GetBalance(ctx, second.PropertyID, second.IssuerID); err != nil || balance.Quantity != 5 {
+		t.Fatal(balance, err)
+	}
+}
+
 func TestTransferInputAuthorizationAndAtomicFailure(t *testing.T) {
 	cc, ctx, stub, id := transferSetup(t)
 	c := transferCommand()

@@ -30,6 +30,7 @@ class Property(Base):
         sa.CheckConstraint("approved_property_ref IS NULL OR approval_status = 'APPROVED' "
                            "OR approval_status = 'SUSPENDED'", name="registered_only_if_approved"),
         sa.UniqueConstraint("approved_property_ref"),
+        sa.UniqueConstraint("friendly_symbol"),
         sa.UniqueConstraint("drunix_registration_transaction_id"),
     )
 
@@ -50,6 +51,7 @@ class Property(Base):
     proposed_issue_price_minor = money(nullable=True)
     approved_supply = quantity(nullable=True)  # issuance constraint fixed at approval; may differ from the proposal
     approved_property_ref = text(64, nullable=True)
+    friendly_symbol = text(32, nullable=True)  # presentation only (ANSH-<symbol>); the ledger uses the UUID
     drunix_registration_transaction_id = text(128, nullable=True)
     ledger_registered_at = timestamp()
     is_synthetic = flag(True)  # demo data must be labelled (ADR-020)

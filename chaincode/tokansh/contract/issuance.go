@@ -269,6 +269,17 @@ func (s *SmartContract) IssueANSH(ctx contractapi.TransactionContextInterface, c
 	if err != nil {
 		return nil, err
 	}
+	// Idempotency was resolved before loading issuance state. A new operation
+	// cannot mint against a property that already has persisted issuance.
+	if state.CumulativeIssuedSupply != 0 {
+		return nil, failure("ISSUANCE_ALREADY_COMPLETED")
+	}
+	if c.Quantity > p.ApprovedSupply {
+		return nil, failure("ISSUANCE_LIMIT_EXCEEDED")
+	}
+	if c.Quantity != p.ApprovedSupply {
+		return nil, failure("INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY")
+	}
 	if c.Quantity > state.RemainingIssuanceCapacity {
 		return nil, failure("ISSUANCE_LIMIT_EXCEEDED")
 	}

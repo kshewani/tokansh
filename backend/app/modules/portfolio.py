@@ -16,6 +16,7 @@ from app.db import models as m
 from app.db.enums import PledgeStatus, UserRole, ValuationPurpose
 from app.ledger import executor
 from app.ledger.port import LedgerPort
+from app.modules import symbols
 from app.modules.common import get_or_404, user_brief
 from app.modules.ledger_reads import ledger_position
 from app.modules import wallet
@@ -45,7 +46,7 @@ def ansh_holdings(db: Session, owner: m.User, ledger: LedgerPort | None = None) 
         prop = db.get(m.Property, iss.property_id)
         unit = _market_unit(db, prop.id)
         row = {"issuance_id": iss.id, "ansh_asset_id": iss.ansh_asset_id, "property_id": prop.id,
-               "property_name": prop.property_name, "owned_units": pos.owned_quantity,
+               "property_name": prop.property_name, "ansh_symbol": symbols.display(prop), "owned_units": pos.owned_quantity,
                "pledged_units": pos.pledged_quantity, "available_units": pos.available_quantity,
                "acquisition_cost": from_minor(pos.acquisition_cost_minor),
                "illustrative_unit_value": from_minor(unit),

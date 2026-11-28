@@ -42,7 +42,7 @@ func recognizedBusinessError(message, function string) string {
 		return business.Code
 	}
 	if function == "IssueANSH" || function == "TransferANSH" {
-		messages := map[string]string{"IDEMPOTENCY_CONFLICT": "Operation was already used with different parameters.", "ISSUANCE_LIMIT_EXCEEDED": "Requested issuance exceeds approved supply.", "UNAUTHORIZED": "Identity is not authorized."}
+		messages := map[string]string{"IDEMPOTENCY_CONFLICT": "Operation was already used with different parameters.", "ISSUANCE_LIMIT_EXCEEDED": "Requested issuance exceeds approved supply.", "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY": "Initial issuance must equal approved supply.", "ISSUANCE_ALREADY_COMPLETED": "This property has already completed issuance.", "UNAUTHORIZED": "Identity is not authorized."}
 		if function == "TransferANSH" {
 			delete(messages, "ISSUANCE_LIMIT_EXCEEDED")
 			messages["INSUFFICIENT_BALANCE"] = "Sender has insufficient ANSH."
@@ -101,6 +101,10 @@ func classifiedBusinessFailure(expected string) error {
 		return &readFailure{expected, "Operation was already used with different parameters.", http.StatusConflict}
 	case "ISSUANCE_LIMIT_EXCEEDED":
 		return &readFailure{expected, "Requested issuance exceeds approved supply.", http.StatusUnprocessableEntity}
+	case "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY":
+		return &readFailure{expected, "Initial issuance must equal approved supply.", http.StatusUnprocessableEntity}
+	case "ISSUANCE_ALREADY_COMPLETED":
+		return &readFailure{expected, "This property has already completed issuance.", http.StatusConflict}
 	case "UNAUTHORIZED":
 		return &readFailure{expected, "Identity is not authorized.", http.StatusForbidden}
 	case "PROPERTY_NOT_FOUND":

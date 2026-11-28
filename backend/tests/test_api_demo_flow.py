@@ -60,6 +60,10 @@ def test_full_demo_scenario(people, ledger):
     assert done["status"] == "COMPLETED"
     assert done["payments"][0]["status"] == "SUCCESS" and done["payments"][0]["simulated"] is True
     assert done["transfer"]["status"] == "COMMITTED" and done["transfer"]["ledger_transaction_id"].startswith("TEST-ONLY-")
+    assert done["ansh_symbol"] == "ANSH-TECHPARK"
+    assert data(aarav.get(f"{P}/wallet"))["entries"][0]["kind"] == "PURCHASE_PAYMENT"
+    meera_cash = data(meera.get(f"{P}/wallet"))
+    assert meera_cash["balance"] == "5000000.00" and meera_cash["entries"][0]["kind"] == "SALE_PROCEEDS"
     assert ledger.balance(asset, AARAV) == (500, 0)
 
     # 6. Portfolio.
@@ -82,7 +86,8 @@ def test_full_demo_scenario(people, ledger):
     data(lender.post(f"{P}/loans/{loan['id']}/assess", {}), 200)
     data(lender.post(f"{P}/loans/{loan['id']}/approve", {}), 200)
     assert data(lender.post(f"{P}/loans/{loan['id']}/disburse"), 200)["status"] == "ACTIVE"
-    assert data(aarav.get(f"{P}/wallet"))["balance"] == "1200000.00"  # simulated disbursement credit
+    # Opening demo cash Rs 1 crore - Rs 50 lakh purchase + Rs 12 lakh simulated disbursement.
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "6200000.00"
 
     # 8. Transferring 350 ANSH (includes pledged units) is rejected; nothing reaches the ledger.
     calls = len(ledger.submitted)
@@ -111,6 +116,7 @@ def test_full_demo_scenario(people, ledger):
     assert data(aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "200000.00"}), 200)["status"] == "PARTIALLY_REPAID"
     r = aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "1120000.01"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "REPAYMENT_EXCEEDS_OUTSTANDING"
+    data(aarav.post(f"{P}/wallet/withdraw", {"amount": "5000000.00"}), 200)  # leave Rs 10 lakh in the wallet
     r = aarav.post(f"{P}/loans/{loan['id']}/repayments", {"amount": "1120000.00"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "INSUFFICIENT_DEMO_CASH"  # 10,00,000 left
     data(aarav.post(f"{P}/wallet/fund", {"amount": "120000.00"}), 200)

@@ -136,8 +136,11 @@ mock-based acceptance. No issuance, registration or transfer was submitted.
 ## M4.2 typed transfers and v1.2 compatibility (local implementation)
 
 Metadata validation accepts only the exact reviewed ordered four-, eight- and
-nine-function interfaces. v1.2 appends `TransferANSH`; contract identity, metadata
-schema_version 1, exact fields and lifetime supply interpretation are unchanged.
+nine-function interfaces. v1.2 appends `TransferANSH`; contract identity and
+metadata schema_version 1 remain unchanged. The historical
+`LIFETIME_CUMULATIVE_ISSUANCE_CEILING` interpretation remains valid for reads and
+transfers. New issuance preparation requires the reviewed
+`ONE_TIME_FULL_SUPPLY_ISSUANCE` interpretation and fails closed otherwise.
 This is interface recognition, not a query of the deployed lifecycle definition.
 Issuance receipts now allow issuer inventory between the issuance quantity and
 cumulative issued supply, matching v1.2 after holdings have been transferred.

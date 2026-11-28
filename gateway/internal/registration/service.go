@@ -18,6 +18,11 @@ var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var money = regexp.MustCompile(`^[1-9][0-9]{0,15}$`)
 var invalid = errors.New("INVALID_REQUEST")
 
+const (
+	LifetimeCumulativeIssuanceCeiling = "LIFETIME_CUMULATIVE_ISSUANCE_CEILING"
+	OneTimeFullSupplyIssuance         = "ONE_TIME_FULL_SUPPLY_ISSUANCE"
+)
+
 // Exact reviewed interfaces: M3, M4.1 and M4.2. Metadata has
 // no lifecycle version field; do not accept arbitrary supersets or subsets.
 func supportedContractFunctions(functions []string) bool {
@@ -184,7 +189,7 @@ func (s *Service) Read(ctx context.Context, function, id string) (any, error) {
 	case "GetContractInfo":
 		var v ContractInfo
 		e = strict(b, &v)
-		if e != nil || v.Contract != "tokansh" || v.SchemaVersion != 1 || v.SupplyInterpretation != "LIFETIME_CUMULATIVE_ISSUANCE_CEILING" || !supportedContractFunctions(v.Functions) {
+		if e != nil || v.Contract != "tokansh" || v.SchemaVersion != 1 || (v.SupplyInterpretation != LifetimeCumulativeIssuanceCeiling && v.SupplyInterpretation != OneTimeFullSupplyIssuance) || !supportedContractFunctions(v.Functions) {
 			return nil, invalid
 		}
 		return v, nil

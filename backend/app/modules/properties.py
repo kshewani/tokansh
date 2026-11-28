@@ -25,6 +25,7 @@ from app.db.enums import (DocumentType, EventSource, OperationStatus, OperationT
 from app.db.types import utcnow
 from app.ledger import executor
 from app.ledger.port import LedgerPort
+from app.modules import symbols
 from app.modules.common import get_or_404, property_ref, user_brief
 
 router = APIRouter(prefix="/api/v1/properties", tags=["Property registry"])
@@ -74,7 +75,7 @@ def view(db: Session, prop: m.Property, detail: bool = False) -> dict:
     op = registration_op(db, prop)
     issuance = db.scalar(sa.select(m.AnshIssuance).filter_by(property_id=prop.id))
     data = {
-        "id": prop.id, "name": prop.property_name, "property_type": prop.property_type,
+        "id": prop.id, "name": prop.property_name, "ansh_symbol": symbols.display(prop), "property_type": prop.property_type,
         "description": prop.description, "address": prop.address, "city": prop.city, "country": prop.country,
         "valuation": from_minor(prop.illustrative_valuation_minor), "currency": prop.valuation_currency,
         "proposed_supply": prop.proposed_supply, "issue_price": from_minor(prop.proposed_issue_price_minor),
@@ -180,7 +181,8 @@ def create_property(body: PropertyIn, request: Request, db: Session = Depends(ge
                       description=body.description, address=body.address.strip(), city=body.city.strip(),
                       country=body.country.strip(), illustrative_valuation_minor=valuation,
                       valuation_currency=body.currency, proposed_supply=body.proposed_supply,
-                      proposed_issue_price_minor=price, issuer_id=user.id, is_synthetic=True)
+                      proposed_issue_price_minor=price, issuer_id=user.id, is_synthetic=True,
+                      friendly_symbol=symbols.allocate(db, body.name.strip()))
     db.add(prop)
     db.flush()
     db.add(m.PropertyValuation(property_id=prop.id, purpose=ValuationPurpose.ILLUSTRATIVE_MARKET,

@@ -27,6 +27,14 @@ export function multiplyAmount(quantity: number, price: string): string {
   const total = paise * BigInt(quantity);
   return (total / 100n).toString() + '.' + (total % 100n).toString().padStart(2, '0');
 }
+/** Decimal INR string to paise as a BigInt (null when not a valid amount). Used for exact comparisons. */
+export function toPaise(amount: string | null | undefined): bigint | null {
+  if (!amount || !/^-?\d+(\.\d{1,2})?$/.test(amount)) return null;
+  const negative = amount.startsWith('-');
+  const [whole, frac = ''] = amount.replace('-', '').split('.');
+  const paise = BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
+  return negative ? -paise : paise;
+}
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }

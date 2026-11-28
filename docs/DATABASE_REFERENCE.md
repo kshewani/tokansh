@@ -53,13 +53,14 @@ Real-estate asset (DOMAIN_MODEL 2.2). Onboarding and approval are application st
 | `proposed_issue_price_minor` | bigint | yes |  | paise |
 | `approved_supply` | bigint | yes |  |  |
 | `approved_property_ref` | varchar(64) | yes |  |  |
+| `friendly_symbol` | varchar(32) | yes |  |  |
 | `drunix_registration_transaction_id` | varchar(128) | yes |  |  |
 | `ledger_registered_at` | timestamp (UTC) | yes |  |  |
 | `is_synthetic` | boolean | no | `true` |  |
 | `created_at` | timestamp (UTC) | no | now |  |
 | `updated_at` | timestamp (UTC) | no | now |  |
 
-Unique: (`approved_property_ref`); (`drunix_registration_transaction_id`).
+Unique: (`approved_property_ref`); (`drunix_registration_transaction_id`); (`friendly_symbol`).
 
 Rules enforced by the database:
 
@@ -867,7 +868,7 @@ specification documents and need team approval.
 | `UserStatus` | `ACTIVE`, `INACTIVE` | proposed |
 | `ValuationPurpose` | `ILLUSTRATIVE_MARKET`, `COLLATERAL` | proposed |
 | `VerificationStatus` | `PENDING`, `VERIFIED`, `REJECTED` | proposed |
-| `WalletEntryKind` | `DEMO_FUNDS`, `WITHDRAWAL`, `DISBURSEMENT`, `REPAYMENT` | from the specification |
+| `WalletEntryKind` | `DEMO_FUNDS`, `WITHDRAWAL`, `DISBURSEMENT`, `REPAYMENT`, `PURCHASE_PAYMENT`, `SALE_PROCEEDS`, `PURCHASE_REFUND` | from the specification |
 
 ## Part 3 — DML playbook
 

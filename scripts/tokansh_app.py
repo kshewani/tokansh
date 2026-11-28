@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 REPO = Path(__file__).resolve().parents[1]
 # Alembic head of backend/alembic (TokANSH business backend on feature/db_schema).
-EXPECTED_REVISION = '0005'
+EXPECTED_REVISION = '0006'
 PORTS = {'gateway': 8001, 'backend': 8000, 'frontend': 5173}
 INFO = dict(contract='tokansh', schema_version=1,
             functions=['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty'],

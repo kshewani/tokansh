@@ -21,12 +21,13 @@ from app.core.idempotency import run_idempotent
 from app.core.money import Amount, from_minor, to_minor
 from app.core.serial import envelope, iso, paginate
 from app.db import models as m
-from app.db.enums import (EventSource, IssuanceStatus, ListingStatus, OperationType, OrderStatus, PaymentKind,
+from app.db.enums import (EventSource, WalletEntryKind, IssuanceStatus, ListingStatus, OperationType, OrderStatus, PaymentKind,
                           PaymentStatus, UserRole)
 from app.db.types import utcnow
 from app.ledger import executor
 from app.ledger.port import LedgerPort
 from app.ledger.projections import apply_deltas, delta
+from app.modules import symbols, wallet
 from app.modules.common import get_or_404, identity, user_brief
 from app.modules.ledger_reads import check_available, ledger_position
 
@@ -60,6 +61,7 @@ def listing_view(db: Session, lst: m.MarketplaceListing) -> dict:
     iss = db.get(m.AnshIssuance, lst.issuance_id)
     prop = db.get(m.Property, iss.property_id)
     return {"id": lst.id, "issuance_id": lst.issuance_id, "ansh_asset_id": iss.ansh_asset_id,
+            "ansh_symbol": symbols.display(prop),
             "property": {"id": prop.id, "name": prop.property_name, "city": prop.city, "property_type": prop.property_type,
                          "valuation": from_minor(prop.illustrative_valuation_minor), "is_synthetic": prop.is_synthetic},
             "seller": user_brief(db.get(m.User, lst.seller_id)), "quantity": lst.quantity,
@@ -80,8 +82,9 @@ def payment_view(p: m.PaymentRecord | None) -> dict | None:
 def order_view(db: Session, o: m.PurchaseOrder) -> dict:
     payments = db.scalars(sa.select(m.PaymentRecord).filter_by(order_id=o.id).order_by(m.PaymentRecord.created_at)).all()
     iss = db.get(m.AnshIssuance, o.issuance_id)
+    prop = db.get(m.Property, iss.property_id)
     return {"id": o.id, "listing_id": o.listing_id, "issuance_id": o.issuance_id,
-            "property_name": db.get(m.Property, iss.property_id).property_name,
+            "property_name": prop.property_name, "ansh_symbol": symbols.display(prop),
             "buyer": user_brief(db.get(m.User, o.buyer_id)), "seller": user_brief(db.get(m.User, o.seller_id)),
             "quantity": o.quantity, "unit_price": from_minor(o.unit_price_minor),
             "total_amount": from_minor(o.total_amount_minor), "currency": o.currency, "status": o.order_status.value,
@@ -111,6 +114,8 @@ def _transfer_committed(db: Session, op: m.LedgerOperation) -> None:
         lst = db.get(m.MarketplaceListing, o.listing_id)
         lst.remaining_quantity -= o.quantity  # only after the confirmed transfer (Rule 5.4)
         lst.listing_status = ListingStatus.FILLED if lst.remaining_quantity == 0 else ListingStatus.PARTIALLY_FILLED
+        if _paid_from_wallet(db, o):  # simulated settlement: seller receives demo cash only after the commit
+            wallet.move(db, o.seller_id, WalletEntryKind.SALE_PROCEEDS, o.total_amount_minor, f"order:{o.id}:proceeds")
         _set_order(db, o, OrderStatus.COMPLETED, o.buyer_id, source=EventSource.DRUNIX_LEDGER,
                    ledger_transaction_id=op.transaction_id, operation_id=op.id)
     asset_event(db, event_type="ANSH_TRANSFERRED", source=EventSource.DRUNIX_LEDGER, property_id=iss.property_id,
@@ -142,11 +147,17 @@ def _transfer_failed(db: Session, op: m.LedgerOperation) -> None:
                                  amount_minor=paid.amount_minor, currency=paid.currency,
                                  payment_status=PaymentStatus.SUCCESS, completed_at=utcnow())
         db.add(refund)
+        if _paid_from_wallet(db, o):
+            wallet.move(db, o.buyer_id, WalletEntryKind.PURCHASE_REFUND, paid.amount_minor, f"order:{o.id}:refund")
         audit(db, entity_type="payment", entity_id=paid.id, operation_type="PAYMENT_REFUNDED", actor_id=None,
               new_state="REFUNDED", source=EventSource.PAYMENT_SIMULATOR,
               detail={"refund_reference": refund.payment_reference})
     o.failure_reason = f"Ledger transfer failed ({op.error_code}); simulated refund recorded."[:300]
     _set_order(db, o, OrderStatus.FAILED, o.buyer_id, outcome="FAILED", operation_id=op.id)
+
+
+def _paid_from_wallet(db: Session, o: m.PurchaseOrder) -> bool:
+    return db.scalar(sa.select(m.DemoCashEntry.id).filter_by(reference_key=f"order:{o.id}:payment")) is not None
 
 
 def _transfer_unresolved(db: Session, op: m.LedgerOperation) -> None:
@@ -333,6 +344,9 @@ def simulate_payment(body: PaymentIn, request: Request, db: Session = Depends(ge
         lst = db.get(m.MarketplaceListing, o.listing_id)
         # Re-validate before taking payment, so payment is not taken when the transfer cannot proceed.
         iss, seller = _validate_purchase(db, ledger, lst, user, o.quantity)
+        if body.simulated_outcome == "SUCCESS" and wallet.balance(db, user.id) < o.total_amount_minor:
+            raise ApiError(409, "INSUFFICIENT_DEMO_CASH", "Not enough demo cash for this order. Add demo funds first.",
+                           {"balance": from_minor(wallet.balance(db, user.id)), "required": from_minor(o.total_amount_minor)})
         pay = m.PaymentRecord(order_id=o.id, payment_kind=PaymentKind.PURCHASE, amount_minor=o.total_amount_minor,
                               currency=o.currency, payment_reference=f"SIM-PAY-{uuid.uuid4().hex[:12].upper()}",
                               payment_status=PaymentStatus.INITIATED)
@@ -350,6 +364,9 @@ def simulate_payment(body: PaymentIn, request: Request, db: Session = Depends(ge
             _set_order(db, o, OrderStatus.PAYMENT_FAILED, user.id, outcome="FAILED")  # Rule 6.2: no transfer
             db.commit()
             raise ApiError(409, "PAYMENT_FAILED", pay.failure_reason, {"order": order_view(db, o)})
+        # Simulated payment from the buyer's demo cash. Held until the DRUNIX transfer resolves:
+        # commit credits the seller, failure refunds the buyer.
+        wallet.move(db, user.id, WalletEntryKind.PURCHASE_PAYMENT, o.total_amount_minor, f"order:{o.id}:payment")
         pay.payment_status = PaymentStatus.SUCCESS
         pay.completed_at = utcnow()
         audit(db, entity_type="payment", entity_id=pay.id, operation_type="PAYMENT_SIMULATED", actor_id=user.id,

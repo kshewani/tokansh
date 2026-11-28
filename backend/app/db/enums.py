@@ -188,6 +188,9 @@ class WalletEntryKind(S):  # simulated demo cash (adopted from the connected-mod
     WITHDRAWAL = "WITHDRAWAL"
     DISBURSEMENT = "DISBURSEMENT"
     REPAYMENT = "REPAYMENT"
+    PURCHASE_PAYMENT = "PURCHASE_PAYMENT"  # buyer pays for ANSH from demo cash
+    SALE_PROCEEDS = "SALE_PROCEEDS"  # seller is credited only after the transfer commits
+    PURCHASE_REFUND = "PURCHASE_REFUND"  # buyer refunded when the ledger transfer fails
 
 
 class EventSource(S):

@@ -13,11 +13,13 @@ import argparse
 import uuid
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.db import models as m
-from app.db.enums import DocumentType, PropertyStatus, UserRole, ValuationPurpose
+from app.db.enums import DocumentType, PropertyStatus, UserRole, ValuationPurpose, WalletEntryKind
 from app.db.session import init_engine
+from app.modules import wallet
 
 NS = uuid.UUID("6f1c2a54-0d7e-4a55-9a53-70b1c0a5e001")
 INR = 100  # paise per rupee
@@ -28,6 +30,8 @@ OBSERVED = datetime(2026, 11, 16, 0, 0, tzinfo=timezone.utc)
 TECHPARK_VALUATION = 100 * CRORE   # INR 100 crore
 TECHPARK_SUPPLY = 100_000          # ANSH
 TECHPARK_UNIT_VALUE = 10_000 * INR  # INR 10,000 per ANSH
+# Opening SIMULATED demo cash, so Aarav can pay for 500 ANSH (INR 50 lakh) from the demo wallet.
+OPENING_CASH = (("aarav", 1 * CRORE),)
 
 
 def sid(name: str) -> str:
@@ -64,6 +68,9 @@ def seed(session: Session, with_property: bool = False) -> dict:
         created["users"] += _add(session, m.User, sid(f"user:{key}"), full_name=name, email=email,
                                  role=role, ledger_identity_ref=username)
     session.flush()
+    for key, amount in OPENING_CASH:
+        if session.scalar(sa.select(m.DemoCashEntry).filter_by(reference_key=f"seed:{key}")) is None:
+            wallet.move(session, sid(f"user:{key}"), WalletEntryKind.DEMO_FUNDS, amount, f"seed:{key}")
     for ident, name, qty, cost, value in REITS:
         created["reit_holdings"] += _add(
             session, m.ReitHolding, sid(f"reit:aarav:{ident}"), investor_id=sid("user:aarav"),

@@ -106,8 +106,12 @@ class FakeLedger:
             p = self.properties.get(c["property_id"])
             if p is None:
                 raise LedgerRejected("PROPERTY_NOT_APPROVED", "property not registered")
-            if p["issued"] + c["quantity"] > p["supply"]:
+            if p["issued"]:
+                raise LedgerRejected("ISSUANCE_ALREADY_COMPLETED", "already issued")
+            if c["quantity"] > p["supply"]:
                 raise LedgerRejected("ISSUANCE_LIMIT_EXCEEDED", "exceeds approved supply")
+            if c["quantity"] != p["supply"]:  # mirrors ONE_TIME_FULL_SUPPLY_ISSUANCE
+                raise LedgerRejected("INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY", "must equal approved supply")
         elif kind == "transfer":
             owned, pledged = self.balance(c["property_id"], c["from_holder_id"])
             if c["quantity"] > owned - pledged:  # chaincode enforces available balance

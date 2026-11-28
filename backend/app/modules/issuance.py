@@ -106,6 +106,10 @@ def create_issuance(body: IssuanceIn, request: Request, db: Session = Depends(ge
         if body.quantity > prop.approved_supply:
             raise ApiError(409, "ISSUANCE_LIMIT_EXCEEDED", "Requested issuance exceeds the approved supply.",
                            {"requested_quantity": body.quantity, "approved_supply": prop.approved_supply})
+        if body.quantity != prop.approved_supply:  # chaincode policy ONE_TIME_FULL_SUPPLY_ISSUANCE
+            raise ApiError(422, "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY",
+                           "ANSH is issued once, for the full approved supply.",
+                           {"requested_quantity": body.quantity, "approved_supply": prop.approved_supply})
         price = to_minor(body.issue_price, "issue_price") if body.issue_price else prop.proposed_issue_price_minor
         if price != prop.proposed_issue_price_minor:  # the registered price is immutable on DRUNIX
             raise ApiError(422, "INVALID_REQUEST", "Issue price must equal the registered issue price.",
@@ -113,8 +117,8 @@ def create_issuance(body: IssuanceIn, request: Request, db: Session = Depends(ge
         iss = db.scalar(sa.select(m.AnshIssuance).filter_by(property_id=prop.id))
         if iss is not None:
             if iss.issuance_status == IssuanceStatus.CONFIRMED:
-                raise ApiError(409, "ISSUANCE_LIMIT_EXCEEDED",
-                               "This property's ANSH has already been issued (one issuance per property in the MVP).",
+                raise ApiError(409, "ISSUANCE_ALREADY_COMPLETED",
+                               "This property's ANSH has already been issued (one issuance per property).",
                                {"issued_quantity": iss.issued_quantity})
             if iss.issuance_status != IssuanceStatus.FAILED:
                 raise ApiError(409, "RECONCILIATION_REQUIRED",

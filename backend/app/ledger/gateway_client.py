@@ -39,6 +39,8 @@ ROUTES = {
 BUSINESS = {
     "INSUFFICIENT_BALANCE": "INSUFFICIENT_AVAILABLE_ANSH",
     "ISSUANCE_LIMIT_EXCEEDED": "ISSUANCE_LIMIT_EXCEEDED",
+    "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY": "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY",
+    "ISSUANCE_ALREADY_COMPLETED": "ISSUANCE_ALREADY_COMPLETED",
     "IDEMPOTENCY_CONFLICT": "IDEMPOTENCY_CONFLICT",
     "PROPERTY_NOT_FOUND": "PROPERTY_NOT_APPROVED",
     "PROPERTY_ALREADY_REGISTERED": "INVALID_OPERATION_STATE",
@@ -128,6 +130,9 @@ class GatewayLedgerClient:
             code = err.get("code", "")
             if code in BUSINESS:
                 raise LedgerRejected(BUSINESS[code], err.get("message") or "The chaincode refused the command.")
+            if code == "ISSUANCE_POLICY_UNSUPPORTED":  # deployed chaincode is older than the gateway expects
+                raise LedgerUnavailable("The deployed TokANSH chaincode does not prove one-time full-supply issuance.",
+                                        code="LEDGER_FUNCTION_UNAVAILABLE")
             raise LedgerUnavailable(f"Gateway preparation failed (HTTP {status} {code or 'error'}).",
                                     code="LEDGER_TIMEOUT" if code == "LEDGER_TIMEOUT" else "LEDGER_UNAVAILABLE")
         artifact = frame.get("data")

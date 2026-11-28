@@ -20,6 +20,7 @@ from app.db.enums import EventSource, UserRole, WalletEntryKind
 
 MAX_TOP_UP_MINOR = 100_000_000_00  # Rs 10 crore per top-up keeps demo figures readable
 CASH_ROLES = (UserRole.INVESTOR, UserRole.ISSUER)
+DEBITS = (WalletEntryKind.WITHDRAWAL, WalletEntryKind.REPAYMENT, WalletEntryKind.PURCHASE_PAYMENT)
 
 
 def account(db: Session, user_id: str) -> m.DemoCashAccount:
@@ -43,7 +44,7 @@ def move(db: Session, user_id: str, kind: WalletEntryKind, amount_minor: int, re
     if existing is not None:
         return existing
     acct = account(db, user_id)
-    debit = kind in (WalletEntryKind.WITHDRAWAL, WalletEntryKind.REPAYMENT)
+    debit = kind in DEBITS
     if debit and acct.balance_minor < amount_minor:
         raise ApiError(409, "INSUFFICIENT_DEMO_CASH", "Not enough demo cash. Add demo funds first.",
                        {"balance": from_minor(acct.balance_minor), "required": from_minor(amount_minor)})

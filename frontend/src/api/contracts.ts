@@ -10,7 +10,7 @@ export type LedgerOperation = {
 export type SystemComponent = {name: string; status: 'CONNECTED' | 'UNAVAILABLE' | 'UNKNOWN' | 'DEGRADED'; detail?: string};
 export type SystemStatus = {components: SystemComponent[]; last_ledger_operation: LedgerOperation | null; unresolved_ledger_operations: number};
 export type Property = {
-  id: string; name: string; property_type: string; description: string | null; address: string; city: string; country: string;
+  id: string; name: string; ansh_symbol: string; property_type: string; description: string | null; address: string; city: string; country: string;
   valuation: string; currency: string; proposed_supply: number; issue_price: string; approved_supply: number | null;
   approval_status: string; verification_status: string; issuer: UserBrief; is_synthetic: boolean; created_at: string;
   ledger: {approved_property_ref: string | null; registered: boolean; registration_transaction_id: string | null;
@@ -24,19 +24,19 @@ export type Issuance = {
   operation: LedgerOperation | null;
 };
 export type Listing = {
-  id: string; issuance_id: string; ansh_asset_id: string; seller: UserBrief; quantity: number; remaining_quantity: number;
+  id: string; issuance_id: string; ansh_asset_id: string; ansh_symbol: string; seller: UserBrief; quantity: number; remaining_quantity: number;
   unit_price: string; currency: string; status: string; created_at: string;
   property: {id: string; name: string; city: string; property_type: string; valuation: string; is_synthetic: boolean};
 };
 export type Payment = {id: string; kind: 'PURCHASE' | 'REFUND'; reference: string; amount: string; currency: string; status: string;
   failure_reason: string | null; simulated: boolean; created_at: string};
 export type Order = {
-  id: string; listing_id: string; issuance_id: string; property_name: string; buyer: UserBrief; seller: UserBrief; quantity: number;
+  id: string; listing_id: string; issuance_id: string; property_name: string; ansh_symbol: string; buyer: UserBrief; seller: UserBrief; quantity: number;
   unit_price: string; total_amount: string; currency: string; status: string; failure_reason: string | null; created_at: string;
   payments: Payment[]; transfer: LedgerOperation | null;
 };
 export type Holding = {
-  issuance_id: string; ansh_asset_id: string; property_id: string; property_name: string; owned_units: number; pledged_units: number;
+  issuance_id: string; ansh_asset_id: string; ansh_symbol: string; property_id: string; property_name: string; owned_units: number; pledged_units: number;
   available_units: number; acquisition_cost: string; illustrative_unit_value: string | null; illustrative_value: string | null;
   currency: string; source: string; ledger_reference: string; as_of: string; reconciliation_status: string;
   ledger_verification?: {status: 'VERIFIED' | 'MISMATCH' | 'UNAVAILABLE'; owned?: number; pledged?: number; error_code?: string};

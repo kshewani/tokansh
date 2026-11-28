@@ -119,9 +119,12 @@ def test_supply_and_permission_rules(people, ledger):
     meera.post(f"{P}/properties/{prop['id']}/approve", {"approved_supply": 90000})
     r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 90001})
     assert r.status_code == 409 and r.json()["error"]["code"] == "ISSUANCE_LIMIT_EXCEEDED"
+    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 89999})  # partial issuance
+    assert r.status_code == 422 and r.json()["error"]["code"] == "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY"
+    assert not [c for c in ledger.calls if c[1] == "issuance"]  # refused before reaching DRUNIX
     assert data(meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 90000}), 201)["status"] == "CONFIRMED"
-    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 1})
-    assert r.status_code == 409
+    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 90000})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "ISSUANCE_ALREADY_COMPLETED"
     assert aarav.client.get(f"{P}/properties").status_code == 401
     r = meera.post(f"{P}/properties", {**TECHPARK, "valuation": "10.001"})
     assert r.status_code == 422  # more than two decimal places
@@ -238,7 +241,7 @@ def test_issue_price_cannot_differ_from_registered_price(people, ledger):
     prop = data(meera.post(f"{P}/properties", TECHPARK), 201)
     meera.post(f"{P}/properties/{prop['id']}/submit")
     meera.post(f"{P}/properties/{prop['id']}/approve", {})
-    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 10, "issue_price": "9000.00"})
+    r = meera.post(f"{P}/ansh/issuances", {"property_id": prop["id"], "quantity": 100000, "issue_price": "9000.00"})
     assert r.status_code == 422
 
 
@@ -301,13 +304,40 @@ def test_lender_catalogue_and_offer_rules(people, ledger):
 
 def test_demo_wallet_moves_cash_once(people):
     aarav = people["aarav"]
-    assert data(aarav.get(f"{P}/wallet"))["balance"] == "0.00"
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "10000000.00"  # seeded opening demo cash
+    data(aarav.post(f"{P}/wallet/withdraw", {"amount": "10000000.00"}), 200)
     w = data(aarav.post(f"{P}/wallet/fund", {"amount": "5000.00"}, idem="top-up-1"), 200)
     again = aarav.post(f"{P}/wallet/fund", {"amount": "5000.00"}, idem="top-up-1")
     assert w["balance"] == "5000.00" and again.json()["data"]["balance"] == "5000.00"  # replay, not a second credit
     r = aarav.post(f"{P}/wallet/withdraw", {"amount": "5000.01"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "INSUFFICIENT_DEMO_CASH"
     w = data(aarav.post(f"{P}/wallet/withdraw", {"amount": "2000.00"}), 200)
-    assert w["balance"] == "3000.00" and [e["kind"] for e in w["entries"]] == ["WITHDRAWAL", "DEMO_FUNDS"]
+    assert w["balance"] == "3000.00" and [e["kind"] for e in w["entries"]][:3] == ["WITHDRAWAL", "DEMO_FUNDS", "WITHDRAWAL"]
     assert all(e["simulated"] for e in w["entries"])
     assert people["lender"].get(f"{P}/wallet").status_code == 403
+
+
+def test_purchase_is_paid_from_demo_cash(people, ledger):
+    meera, aarav = people["meera"], people["aarav"]
+    _, iss, listing = setup_issued(people)
+    data(aarav.post(f"{P}/wallet/withdraw", {"amount": "9000000.00"}), 200)  # Rs 10 lakh left: 100 ANSH
+    order, resp = buy(people, listing, qty=101)
+    assert resp.status_code == 409 and resp.json()["error"]["code"] == "INSUFFICIENT_DEMO_CASH"
+    assert not transfers_sent(ledger) and data(aarav.get(f"{P}/marketplace/orders/{order['id']}"))["payments"] == []
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "1000000.00"
+
+    # Ledger rejects the transfer: the buyer is refunded and the seller is never credited.
+    ledger.next_outcome["transfer"] = "REJECT:INVALID_REQUEST"
+    order, resp = buy(people, listing, qty=100)
+    assert resp.status_code == 409
+    kinds = [e["kind"] for e in data(aarav.get(f"{P}/wallet"))["entries"]]
+    assert kinds[:2] == ["PURCHASE_REFUND", "PURCHASE_PAYMENT"]
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "1000000.00"
+    assert data(meera.get(f"{P}/wallet"))["balance"] == "0.00"
+
+    # Ambiguous outcome: cash stays held (neither refunded nor paid out) until reconciliation.
+    ledger.next_outcome["transfer"] = "SUBMIT_UNKNOWN"
+    order, resp = buy(people, listing, qty=100)
+    assert resp.status_code == 202
+    assert data(aarav.get(f"{P}/wallet"))["balance"] == "0.00"
+    assert data(meera.get(f"{P}/wallet"))["balance"] == "0.00"

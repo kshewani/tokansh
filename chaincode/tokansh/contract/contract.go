@@ -102,16 +102,18 @@ func (e contractError) Error() string {
 }
 func failure(code string) error {
 	messages := map[string]string{
-		"INVALID_ARGUMENT":            "Command or identifier is invalid.",
-		"UNSUPPORTED_SCHEMA_VERSION":  "Command version is unsupported.",
-		"UNAUTHORIZED":                "Identity is not authorized.",
-		"PROPERTY_NOT_FOUND":          "Registered property was not found.",
-		"OPERATION_NOT_FOUND":         "Operation was not found.",
-		"PROPERTY_ALREADY_REGISTERED": "Property registration is immutable.",
-		"IDEMPOTENCY_CONFLICT":        "Operation was already used with different parameters.",
-		"LEDGER_STATE_ERROR":          "Ledger state could not be processed.",
-		"ISSUANCE_LIMIT_EXCEEDED":     "Requested issuance exceeds approved supply.",
-		"INSUFFICIENT_BALANCE":        "Sender has insufficient ANSH.",
+		"INVALID_ARGUMENT":                            "Command or identifier is invalid.",
+		"UNSUPPORTED_SCHEMA_VERSION":                  "Command version is unsupported.",
+		"UNAUTHORIZED":                                "Identity is not authorized.",
+		"PROPERTY_NOT_FOUND":                          "Registered property was not found.",
+		"OPERATION_NOT_FOUND":                         "Operation was not found.",
+		"PROPERTY_ALREADY_REGISTERED":                 "Property registration is immutable.",
+		"IDEMPOTENCY_CONFLICT":                        "Operation was already used with different parameters.",
+		"LEDGER_STATE_ERROR":                          "Ledger state could not be processed.",
+		"ISSUANCE_LIMIT_EXCEEDED":                     "Requested issuance exceeds approved supply.",
+		"INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY": "Initial issuance must equal approved supply.",
+		"ISSUANCE_ALREADY_COMPLETED":                  "This property has already completed issuance.",
+		"INSUFFICIENT_BALANCE":                        "Sender has insufficient ANSH.",
 	}
 	return contractError{code, messages[code]}
 }
@@ -319,7 +321,7 @@ func (s *SmartContract) GetContractInfo(ctx contractapi.TransactionContextInterf
 	if err := authorizeRead(ctx); err != nil {
 		return nil, err
 	}
-	return &ContractInfo{"tokansh", 1, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"}, "LIFETIME_CUMULATIVE_ISSUANCE_CEILING"}, nil
+	return &ContractInfo{"tokansh", 1, []string{"GetContractInfo", "GetRegisteredProperty", "GetOperation", "RegisterApprovedProperty", "IssueANSH", "GetIssuanceState", "GetBalance", "GetIssuanceOperation", "TransferANSH"}, "ONE_TIME_FULL_SUPPLY_ISSUANCE"}, nil
 }
 func (s *SmartContract) GetRegisteredProperty(ctx contractapi.TransactionContextInterface, propertyID string) (*Property, error) {
 	if err := authorizeRead(ctx); err != nil {

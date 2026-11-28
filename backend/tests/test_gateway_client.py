@@ -141,3 +141,15 @@ def test_running_app_never_uses_a_test_double():
     assert isinstance(app.state.ledger, GatewayLedgerClient)
     src = pathlib.Path(__file__).resolve().parents[1] / "app"
     assert not [p for p in src.rglob("*.py") if "fake" in p.read_text().lower().replace("fabricate", "")]
+
+
+def test_full_supply_issuance_codes_map_to_api_codes():
+    for code in ("INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY", "ISSUANCE_ALREADY_COMPLETED"):
+        resp = httpx.Response(422, json={"error": {"code": code, "message": "x"}})
+        with pytest.raises(LedgerRejected) as e:
+            client(lambda r, resp=resp: resp).prepare("issuance", CMD)
+        assert e.value.code == code
+    old = httpx.Response(503, json={"error": {"code": "ISSUANCE_POLICY_UNSUPPORTED", "message": "x"}})
+    with pytest.raises(LedgerUnavailable) as e:
+        client(lambda r: old).prepare("issuance", CMD)
+    assert e.value.code == "LEDGER_FUNCTION_UNAVAILABLE"

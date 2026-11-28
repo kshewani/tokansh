@@ -10,6 +10,31 @@ import {Button} from '../components/ui/button';
 import {Loading, QueryError, Source, Status} from '../components/ui/status';
 import {ReviewDialog} from '../components/ui/dialog';
 import {DataRow, Field} from '../components/ui/form';
+import {Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
+import {PropertyThumb} from './RealEstate';
+import type {Holding} from '../api/contracts';
+
+const AVAILABLE = '#1769AA', PLEDGED = '#D08C1E';  // validated pair (CVD ΔE 26.7); exact figures in the table below
+
+/** Available vs pledged ANSH per holding, from the committed-ledger projection. */
+function AllocationChart({rows}: {rows: Holding[]}) {
+  const chartData = rows.map(h => ({name: h.ansh_symbol, property: h.property_name, available: h.available_units, pledged: h.pledged_units}));
+  return <div role="img" aria-label={'ANSH units by holding: ' + rows.map(h => `${h.ansh_symbol} ${h.available_units} available, ${h.pledged_units} pledged`).join('; ')}>
+    <ResponsiveContainer width="100%" height={Math.max(120, 56 * rows.length + 60)}>
+      <BarChart data={chartData} layout="vertical" margin={{top: 4, right: 16, bottom: 4, left: 8}} barCategoryGap="30%">
+        <CartesianGrid horizontal={false} stroke="#E2E8F0"/>
+        <XAxis type="number" allowDecimals={false} tick={{fontSize: 11, fill: '#64748B'}} axisLine={false} tickLine={false}
+          tickFormatter={v => integer(v)}/>
+        <YAxis type="category" dataKey="name" width={120} tick={{fontSize: 11, fill: '#334155'}} axisLine={false} tickLine={false}/>
+        <Tooltip cursor={{fill: 'rgba(148,163,184,.12)'}} formatter={(v, k) => [integer(Number(v)) + ' ANSH', String(k) === 'available' ? 'Available' : 'Pledged'] as [string, string]}
+          labelFormatter={label => chartData.find(d => d.name === label)?.property ?? String(label)}/>
+        <Legend iconType="square" wrapperStyle={{fontSize: 12}} formatter={v => v === 'available' ? 'Available (transferable)' : 'Pledged (transfer-restricted)'}/>
+        <Bar dataKey="available" stackId="u" fill={AVAILABLE} stroke="#fff" strokeWidth={2}/>
+        <Bar dataKey="pledged" stackId="u" fill={PLEDGED} stroke="#fff" strokeWidth={2} radius={[0, 4, 4, 0]}/>
+      </BarChart>
+    </ResponsiveContainer>
+  </div>;
+}
 
 function QuickLink({to, label}: {to: string; label: string}) {
   return <Button asChild variant="secondary" size="sm"><Link to={to}>{label}<ChevronRight size={15}/></Link></Button>;
@@ -73,7 +98,7 @@ export function WalletCard() {
       </form>
       {!!w.data?.entries.length && <dl className="mt-4">{w.data.entries.slice(0, 5).map(e => <DataRow key={e.id}
         label={`${e.kind.replaceAll('_', ' ').toLowerCase()} · ${when(e.created_at)}`}
-        value={`${['WITHDRAWAL', 'REPAYMENT'].includes(e.kind) ? '−' : '+'}${inr(e.amount)} → ${inr(e.balance_after)}`}/>)}</dl>}
+        value={`${['WITHDRAWAL', 'REPAYMENT', 'PURCHASE_PAYMENT'].includes(e.kind) ? '−' : '+'}${inr(e.amount)} → ${inr(e.balance_after)}`}/>)}</dl>}
     </>}
     <ReviewDialog open={!!open} onOpenChange={v => !v && setOpen(null)} busy={submitting} confirmLabel="Confirm"
       title={open === 'fund' ? 'Add demo funds' : 'Withdraw demo cash'} description="Simulated cash only. No bank account is contacted."
@@ -100,13 +125,16 @@ export function Portfolio() {
       <Metric label="Pledged ANSH" value={s ? integer(s.ansh.pledged_units) : '…'} description="Cannot be transferred"/>
       <Metric label="Acquisition cost" value={s ? inr(s.ansh.acquisition_cost) : '…'} description={s ? 'Illustrative value ' + inr(s.ansh.illustrative_value) : ''}/>
     </div>
+    {!!pf.data?.ansh.length && <Card className="mt-5" title="ANSH allocation" description="Units per holding · available vs pledged · DRUNIX projection (exact figures in the table below)">
+      <AllocationChart rows={pf.data.ansh}/></Card>}
     <Card className="mt-5" title="ANSH positions" description="Source: projection of committed DRUNIX operations, with its transaction reference">
       {pf.isLoading ? <Loading/> : !pf.data?.ansh.length ? <EmptyState title="No ANSH yet" description="Buy ANSH in the marketplace."/> :
         <div className="data-table-wrap"><table className="data-table w-full">
           <thead><tr><th>Asset</th><th className="money">Owned</th><th className="money">Available</th><th className="money">Pledged</th>
             <th className="money">Acquisition cost</th><th className="money">Illustrative value</th><th>Ledger reference</th><th>Verification</th></tr></thead>
           <tbody>{pf.data.ansh.map(h => <tr key={h.issuance_id}>
-            <td><p className="font-semibold">{h.property_name}</p><code className="text-[10px] text-slate-500">{h.ansh_asset_id}</code></td>
+            <td><div className="flex items-center gap-3"><PropertyThumb name={h.property_name} symbol={h.ansh_symbol}/><div><p className="font-semibold">{h.property_name}</p>
+              <p className="text-[11px] font-semibold text-slate-600">{h.ansh_symbol}</p><code className="text-[10px] text-slate-500">{h.ansh_asset_id}</code></div></div></td>
             <td className="money">{integer(h.owned_units)}</td><td className="money font-semibold text-green-800">{integer(h.available_units)}</td>
             <td className="money text-amber-800">{integer(h.pledged_units)}</td><td className="money">{inr(h.acquisition_cost)}</td>
             <td className="money">{inr(h.illustrative_value)}<p className="text-[10px] text-slate-400">simulated valuation</p></td>

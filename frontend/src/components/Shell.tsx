@@ -34,7 +34,7 @@ export function Shell(){
   {open&&<button className="fixed inset-0 z-30 bg-slate-950/50 lg:hidden" aria-label="Close navigation" onClick={()=>setOpen(false)}/>}
   <aside className={'fixed inset-y-0 left-0 z-40 flex flex-col bg-[#102B4E] text-white transition-all lg:sticky lg:top-0 lg:h-screen '+(open?'translate-x-0':'-translate-x-full lg:translate-x-0')+' '+(collapsed?'w-20':'w-64')}>
    <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
-    <NavLink to="/overview" className="flex items-center gap-2 text-lg font-extrabold tracking-tight" onClick={()=>setOpen(false)}><span className="rounded-lg border border-blue-300/40 bg-blue-400/15 p-1.5 text-blue-200">◈</span>{!collapsed&&<span>Tok<span className="text-blue-200">ANSH</span></span>}</NavLink>
+    <NavLink to="/overview" className="flex items-center gap-2 text-lg font-extrabold tracking-tight" onClick={()=>setOpen(false)}>{collapsed?<span className="rounded-lg border border-blue-300/40 bg-blue-400/15 p-1.5 text-blue-200" aria-label="TokANSH">◈</span>:<img className="h-12 w-auto rounded-md bg-white px-2 py-1" src="/images/tokansh-logo.webp" width={600} height={200} alt="TokANSH"/>}</NavLink>
     <button className="text-blue-200 lg:hidden" onClick={()=>setOpen(false)} aria-label="Close navigation"><X size={20}/></button>
    </div>
    <div className="overflow-y-auto px-3 py-5">

@@ -39,7 +39,8 @@ CommandBuilder = Callable[[str], dict]
 
 # Chaincode rejections that are business rule violations, reported as 409 with the same code.
 BUSINESS_CODES = {"INSUFFICIENT_AVAILABLE_ANSH", "PLEDGED_UNITS_RESTRICTED", "ISSUANCE_LIMIT_EXCEEDED",
-                  "PROPERTY_NOT_APPROVED", "INVALID_OPERATION_STATE", "INVALID_REQUEST", "IDEMPOTENCY_CONFLICT"}
+                  "PROPERTY_NOT_APPROVED", "INVALID_OPERATION_STATE", "INVALID_REQUEST", "IDEMPOTENCY_CONFLICT",
+                  "INITIAL_ISSUANCE_MUST_MATCH_APPROVED_SUPPLY", "ISSUANCE_ALREADY_COMPLETED"}
 PENDING = {OperationStatus.CREATED, OperationStatus.VALIDATING, OperationStatus.SUBMITTED,
            OperationStatus.UNKNOWN, OperationStatus.RECONCILIATION_REQUIRED}
 KIND = {OperationType.APPROVED_PROPERTY_REGISTRATION: "registration", OperationType.ANSH_ISSUANCE: "issuance",

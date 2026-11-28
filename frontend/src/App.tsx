@@ -42,7 +42,7 @@ function Login(){
  }
  return <main className="grid min-h-screen grid-cols-1 bg-[#F4F6F9] lg:grid-cols-[.9fr_1.1fr]">
   <section className="flex min-h-[290px] flex-col justify-between bg-[#102B4E] px-7 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
-   <div className="flex items-center gap-3 text-xl font-extrabold tracking-tight"><span className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-300/40 bg-blue-400/10 text-3xl text-blue-200">◈</span><span>Tok<span className="text-blue-200">ANSH</span></span></div>
+   <div><img className="h-auto w-56 rounded-lg bg-white p-2" src="/images/tokansh-logo.webp" width={600} height={200} alt="TokANSH"/></div>
    <div className="max-w-lg py-8 lg:py-20"><p className="text-xs font-bold uppercase tracking-[.18em] text-blue-200">DRUNIX Hackathon 2026</p>
     <h1 className="mt-5 text-3xl font-extrabold leading-tight text-white sm:text-4xl lg:text-5xl">Unlocking Real Estate,<br/><span className="text-blue-200">One Ansh at a Time.</span></h1>
     <p className="mt-5 max-w-md text-sm leading-7 text-blue-100/80">A professional workspace for fractional real estate interests, portfolio visibility, issuance, collateral and lifecycle tracking.</p>

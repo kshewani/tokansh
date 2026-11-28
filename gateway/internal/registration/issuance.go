@@ -84,6 +84,13 @@ func (s *Service) CheckIssuance(a IssuanceArtifact) error {
 	return checkCommandArtifact(s, a, "IssueANSH", validateIssuance)
 }
 func (s *Service) PrepareIssuance(ctx context.Context, c IssuanceCommand) (IssuanceArtifact, error) {
+	info, err := s.Read(ctx, "GetContractInfo", "")
+	if err != nil {
+		return IssuanceArtifact{}, err
+	}
+	if info.(ContractInfo).SupplyInterpretation != OneTimeFullSupplyIssuance {
+		return IssuanceArtifact{}, &readFailure{"ISSUANCE_POLICY_UNSUPPORTED", "The deployed contract does not prove the required issuance policy.", 503}
+	}
 	ledger, ok := s.Ledger.(IssuanceLedger)
 	if !ok {
 		return IssuanceArtifact{}, invalid
