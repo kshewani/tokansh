@@ -75,6 +75,11 @@ LENDER_STATES = {
     "horizon-credit": {"APPLIED": 3, "APPROVED": 2, "REJECTED": 1, "DISBURSED": 3, "RELEASED": 2},
 }
 LENDER_OFFERS = {"axim-bank": ("axim-standard", 1000, 60, 12), "real-finance": ("real-flex", 900, 55, 12), "horizon-credit": ("horizon-liquidity", 1200, 70, 12)}
+# Maximum repayment for the fixed showcase payload: principal 60,000 plus
+# Horizon Credit's 7,200 interest. This also covers a loan already disbursed
+# before a resumed run adds the cash buffer.
+REPAYMENT_BUFFER_MINOR = 67_200
+LOAN_STATES = ("APPLIED", "ASSESSED", "APPROVED", "DISBURSED", "REPAID", "RELEASED")
 
 
 def api(base: str, token: str | None, path: str, method: str = "GET", payload: dict | None = None, key: str | None = None) -> dict:
@@ -88,8 +93,18 @@ def api(base: str, token: str | None, path: str, method: str = "GET", payload: d
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             value = json.load(response)
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        raise RuntimeError(f"API request failed for {method} {path}: {exc}") from exc
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read(16_385).decode())
+            error = detail.get("error", {}) if isinstance(detail, dict) else {}
+            code = error.get("code", "HTTP_ERROR")
+            message = error.get("message", "The API rejected the request.")
+            detail_text = f" code={code} message={message}" if isinstance(code, str) and isinstance(message, str) else ""
+        except (ValueError, UnicodeDecodeError):
+            detail_text = ""
+        raise RuntimeError(f"API request failed: HTTP {exc.code} {exc.reason} {method} {path}.{detail_text}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"API request failed: {method} {path}: {exc.reason}") from exc
     if not isinstance(value, dict) or not isinstance(value.get("data"), (dict, list)):
         raise RuntimeError(f"Unexpected API response for {method} {path}")
     return value["data"]
@@ -156,11 +171,64 @@ def backup_database() -> Path:
     return target
 
 
+def fund_investor_to_target(base: str, username: str, target_minor: int) -> None:
+    token, _ = login(base, username)
+    wallet = api(base, token, "/api/v1/demo-wallet")
+    try:
+        available = int(wallet["available_minor"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Wallet response for {username} has no valid available_minor") from exc
+    if available >= target_minor:
+        print(f"wallet borrower={username} available={available} target={target_minor} action=none")
+        return
+    amount = target_minor - available
+    api(base, token, "/api/v1/demo-wallet/fund", "POST", {"amount_minor": str(amount)},
+        "showcase-wallet-" + username.lower())
+    print(f"wallet borrower={username} available_before={available} funded={amount} target={target_minor}")
+
+
+def transition_actions(current: str, target: str) -> list[str]:
+    if current not in (*LOAN_STATES, "REJECTED") or target not in (*LOAN_STATES, "REJECTED"):
+        raise RuntimeError(f"Unsupported lender state transition: current={current!r} target={target!r}")
+    if current == target:
+        return []
+    if current == "REJECTED" or target == "REJECTED":
+        if target == "REJECTED" and current in {"APPLIED", "ASSESSED"}:
+            return (["assess"] if current == "APPLIED" else []) + ["reject"]
+        raise RuntimeError(f"Incompatible lender state transition: current={current} target={target}")
+    states = list(LOAN_STATES)
+    current_index, target_index = states.index(current), states.index(target)
+    if current_index > target_index:
+        raise RuntimeError(f"Loan already passed target state: current={current} target={target}")
+    return ["assess", "approve", "disburse", "repay", "release"][current_index:target_index]
+
+
+def advance_loan(base: str, lender_id: str, borrower: str, loan: dict,
+                 borrower_token: str, lender_token: str, target: str) -> dict:
+    loan_id, current = loan.get("id"), loan.get("state")
+    if not isinstance(loan_id, str):
+        raise RuntimeError(f"Lender {lender_id} returned an application without an id")
+    actions = transition_actions(current, target)
+    print(f"loan lender={lender_id} borrower={borrower} loan={loan_id} current={current} target={target}")
+    for action in actions:
+        token = borrower_token if action in {"repay", "release"} else lender_token
+        result = api(base, token, f"/api/v1/financing/applications/{loan_id}/{action}", "POST")
+        next_state = result.get("state")
+        if not isinstance(next_state, str):
+            raise RuntimeError(f"Loan {loan_id} action={action} returned no state")
+        current = next_state
+        print(f"loan lender={lender_id} borrower={borrower} loan={loan_id} action={action} state={current} target={target}")
+    if current != target:
+        raise RuntimeError(f"Loan {loan_id} stopped at {current}; target was {target}")
+    return {**loan, "state": current}
+
+
 def plan() -> None:
     print(json.dumps({"catalogue": [asdict(item) for item in CATALOGUE], "initial_issue_price_minor": "100000", "properties": len(CATALOGUE), "lender_state_targets": LENDER_STATES, "note": "REIT positions remain illustrative frontend representations and are not ledger records."}, indent=2))
 
 
-def provision_lenders(base: str, property_rows: dict[str, dict]) -> None:
+def provision_lenders(base: str, property_rows: dict[str, dict]) -> dict[str, dict[str, str]]:
+    showcase_loans: dict[str, dict[str, str]] = {lender_id: {} for lender_id in LENDER_STATES}
     for lender_id, targets in LENDER_STATES.items():
         lender_token, _ = login(base, lender_id)
         offer_id, rate, ltv, term = LENDER_OFFERS[lender_id]
@@ -177,21 +245,52 @@ def provision_lenders(base: str, property_rows: dict[str, dict]) -> None:
                     "offer_id": offer_id, "quantity": 1, "unit_value_minor": "100000",
                     "ltv_percent": ltv, "annual_rate_bps": rate, "term_months": term,
                 }, key)
-                loan_id = loan["id"]
-                if state == "APPLIED":
-                    continue
-                api(base, lender_token, f"/api/v1/financing/applications/{loan_id}/assess", "POST")
-                if state == "REJECTED":
-                    api(base, lender_token, f"/api/v1/financing/applications/{loan_id}/reject", "POST")
-                    continue
-                api(base, lender_token, f"/api/v1/financing/applications/{loan_id}/approve", "POST")
-                if state == "APPROVED":
-                    continue
-                api(base, lender_token, f"/api/v1/financing/applications/{loan_id}/disburse", "POST")
-                if state == "DISBURSED":
-                    continue
-                api(base, borrower_token, f"/api/v1/financing/applications/{loan_id}/repay", "POST")
-                api(base, borrower_token, f"/api/v1/financing/applications/{loan_id}/release", "POST")
+                advance_loan(base, lender_id, borrower, loan, borrower_token, lender_token, state)
+                showcase_loans[lender_id][loan["id"]] = state
+    print_showcase_summary(base, showcase_loans)
+    return showcase_loans
+
+
+def print_showcase_summary(base: str, showcase_loans: dict[str, dict[str, str]]) -> None:
+    print("showcase loan summary:")
+    for lender_id, expected in showcase_loans.items():
+        token, _ = login(base, lender_id)
+        rows = api(base, token, "/api/v1/financing/applications")
+        by_id = {row.get("id"): row for row in rows if isinstance(row, dict)}
+        counts = {state: 0 for state in ("APPLIED", "APPROVED", "REJECTED", "DISBURSED", "RELEASED")}
+        missing = []
+        for loan_id in expected:
+            row = by_id.get(loan_id)
+            if row is None:
+                missing.append(loan_id)
+            elif row.get("state") in counts:
+                counts[row["state"]] += 1
+        if missing:
+            raise RuntimeError(f"Lender {lender_id} cannot read {len(missing)} provisioned applications")
+        print(f"  {lender_id}: {counts}")
+        target_counts = {state: LENDER_STATES[lender_id][state] for state in counts}
+        if counts != target_counts:
+            raise RuntimeError(f"Lender {lender_id} showcase counts do not match target: actual={counts} target={target_counts}")
+
+
+def existing_showcase_properties(base: str) -> dict[str, dict]:
+    token, _ = login(base, "Meera")
+    properties = api(base, token, "/api/v1/properties")
+    by_symbol = {value.get("ansh_symbol"): value for value in properties.get("items", []) if isinstance(value, dict)}
+    missing = ["ANSH-" + item.symbol for item in CATALOGUE if "ANSH-" + item.symbol not in by_symbol]
+    if missing:
+        raise RuntimeError("Lender-only provisioning requires existing showcase properties: missing " + ", ".join(missing))
+    return {item.symbol: by_symbol["ANSH-" + item.symbol] for item in CATALOGUE}
+
+
+def provision_lenders_only(base: str) -> None:
+    backup = backup_database()
+    print(f"Created SQLite backup: {backup}")
+    property_rows = existing_showcase_properties(base)
+    for borrower in dict.fromkeys(name for name, _ in BORROWER_POSITIONS):
+        fund_investor_to_target(base, borrower, REPAYMENT_BUFFER_MINOR)
+    provision_lenders(base, property_rows)
+    print("Lender-only provisioning completed using existing properties and deterministic loan keys.")
 
 
 def apply(base: str) -> None:
@@ -247,12 +346,9 @@ def apply(base: str) -> None:
                 "property_id": existing["id"], "quantity": OFFERINGS[item.symbol],
             })
     for username, target_minor in (("Meera", 45_000_000), ("Aarav", 20_000_000)):
-        investor_token, _ = login(base, username)
-        wallet = api(base, investor_token, "/api/v1/demo-wallet")
-        current = int(wallet["balance_minor"])
-        if current < target_minor:
-            api(base, investor_token, "/api/v1/demo-wallet/fund", "POST",
-                {"amount_minor": str(target_minor - current)}, "showcase-wallet-" + username.lower())
+        fund_investor_to_target(base, username, target_minor)
+    for borrower in dict.fromkeys(name for name, _ in BORROWER_POSITIONS):
+        fund_investor_to_target(base, borrower, REPAYMENT_BUFFER_MINOR)
     provision_lenders(base, showcase_rows)
     print("Showcase properties, ownership allocations, offerings, wallets and lender applications completed through existing workflows.")
 
@@ -262,13 +358,19 @@ def main() -> int:
     parser.add_argument("--api", default=os.environ.get("TOKANSH_API_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--apply", action="store_true", help="perform authenticated application and ledger workflows")
     parser.add_argument("--allow-live-writes", action="store_true", help="required with --apply")
+    parser.add_argument("--lenders-only", action="store_true", help="resume only supporting-investor funding and lender applications")
     args = parser.parse_args()
+    if args.lenders_only and not args.apply:
+        raise SystemExit("Refusing lender-only provisioning without --apply.")
     if not args.apply:
         plan()
         return 0
     if not args.allow_live_writes:
         raise SystemExit("Refusing live provisioning: pass --apply --allow-live-writes explicitly.")
-    apply(args.api)
+    if args.lenders_only:
+        provision_lenders_only(args.api)
+    else:
+        apply(args.api)
     return 0
 
 
