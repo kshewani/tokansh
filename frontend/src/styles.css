@@ -96,6 +96,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .premium-app .property-opportunity-image{aspect-ratio:1.42;object-fit:cover;width:100%;border-radius:.75rem;display:block}
 .premium-app .recharts-responsive-container,.premium-app .recharts-wrapper{max-width:100%!important;overflow:hidden!important}
 .premium-app .dashboard-opportunities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
+.premium-app .marketplace-offerings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}.premium-app .marketplace-offering-card{min-width:0;overflow:hidden;border:1px solid rgba(43,54,71,.9);border-radius:.85rem;background:#0d1521;text-align:left;transition:border-color .18s ease,box-shadow .18s ease}.premium-app .marketplace-offering-card:hover,.premium-app .marketplace-offering-card.is-selected{border-color:var(--premium-champagne);box-shadow:0 0 18px rgba(212,175,55,.14)}
 .premium-app .dashboard-main-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(18rem,1fr);gap:1rem}
 .premium-app .dashboard-side-stack{display:grid;gap:1rem;align-content:start}
 .premium-app .dashboard-holding-card{background:radial-gradient(circle at 92% 28%,rgba(212,175,55,.22),transparent 34%),linear-gradient(145deg,#111925,#0c131f)!important}
@@ -114,3 +115,4 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .premium-app .mobile-menu-button{border:1px solid rgba(245,215,142,.38);color:var(--premium-champagne);background:rgba(17,25,37,.9)}
 @media(max-width:1100px){.premium-app .dashboard-main-grid{grid-template-columns:1fr}.premium-app .dashboard-side-stack{grid-template-columns:repeat(2,minmax(0,1fr))}.premium-app .dashboard-opportunities{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.premium-app .dashboard-opportunities{grid-template-columns:1fr}.premium-app .dashboard-side-stack{grid-template-columns:1fr}.premium-app .premium-header{padding-left:1rem;padding-right:1rem}.premium-app .premium-main{padding:1rem}.premium-app .premium-metric p:nth-child(2){font-size:1.45rem}.premium-app .premium-card{padding:1rem}.premium-app .data-table{min-width:620px}.premium-app .data-table-wrap{margin-inline:-.25rem}.premium-app .premium-section-heading{align-items:flex-start}.premium-app .premium-hero{padding:1.25rem}.premium-app .premium-hero .flex{align-items:stretch}.premium-app .premium-hero a{width:100%}}
+@media(max-width:520px){.premium-app .marketplace-offerings-grid{grid-template-columns:1fr}}

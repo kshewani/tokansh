@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequest} from '../src/api/client.ts';
 import {deriveSupply,parsePortfolio,propertyTokenId} from '../src/api/properties.ts';
-import {parseOffering,parsePurchase,parseWalletBalance,purchaseStorageKey,readPurchaseRecovery,writePurchaseRecovery} from '../src/api/marketplace.ts';
+import {parseOffering,parseOfferings,parsePurchase,parseWalletBalance,purchaseStorageKey,readPurchaseRecovery,visibleOfferings,writePurchaseRecovery} from '../src/api/marketplace.ts';
 
 const issuer='00000000-0000-4000-8000-000000000003';
 const buyer='00000000-0000-4000-8000-000000000006';
@@ -31,6 +31,13 @@ test('offering, purchase and wallet parsers reject inconsistent observations',()
  assert.throws(()=>parseOffering({...base,available_quantity:6}),{code:'MALFORMED_RESPONSE'});
  assert.throws(()=>parsePurchase({...result,total_amount_minor:'1'}),{code:'MALFORMED_RESPONSE'});
  assert.throws(()=>parseWalletBalance({investor_id:buyer,balance_minor:'100',reserved_minor:'75',available_minor:'30',currency:'INR',simulated:true},buyer),{code:'MALFORMED_RESPONSE'});
+});
+
+test('marketplace preserves every active property offering for each investor',()=>{
+ const second={...base,id:'70000000-0000-4000-8000-000000000002',property_id:'f6169750-4676-4e99-887f-2bc5471bd519',issuer_id:buyer,sold_quantity:3,available_quantity:4};
+ const offerings=parseOfferings([base,second,{...base,id:'70000000-0000-4000-8000-000000000003',status:'SOLD_OUT',available_quantity:0}]);
+ assert.deepEqual(visibleOfferings(offerings).map(value=>value.property_id),[property,second.property_id]);
+ assert.equal(visibleOfferings(offerings).some(value=>value.issuer_id===buyer),true);
 });
 
 test('purchase recovery preserves the original idempotency key and operation',()=>{

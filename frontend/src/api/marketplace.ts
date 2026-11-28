@@ -20,6 +20,8 @@ export function parseOffering(value:unknown):Offering{
  return value as Offering;
 }
 export function parseOfferings(value:unknown):Offering[]{if(!Array.isArray(value))return malformed();return value.map(parseOffering);}
+/** Public marketplace inventory: keep every active offering with confirmed remaining units. */
+export function visibleOfferings(value:readonly Offering[]):Offering[]{return value.filter(offering=>offering.status==='ACTIVE'&&offering.available_quantity>0);}
 export function parsePurchase(value:unknown):Purchase{
  if(!isRecord(value)||typeof value.operation_id!=='string'||!uuid.test(value.operation_id)||typeof value.offering_id!=='string'||!uuid.test(value.offering_id)||typeof value.property_id!=='string'||!uuid.test(value.property_id)||
   typeof value.buyer_id!=='string'||!uuid.test(value.buyer_id)||typeof value.seller_id!=='string'||!uuid.test(value.seller_id)||!integer(value.quantity)||value.quantity<1||
