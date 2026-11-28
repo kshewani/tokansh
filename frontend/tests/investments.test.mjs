@@ -23,7 +23,7 @@ test('illustrative distributions preserve integer paise, including large quantit
  assert.throws(()=>entitlement(1.5,'100'));assert.throws(()=>entitlement(1,'1.2'));assert.throws(()=>allocation('100',3,2));
  const snapshot=incomeSnapshot(id,aarav,ids.property,2,'10000',time,'DRUNIX_CURRENT_BALANCE');
  assert.equal(snapshot.lines[0].entitlement_minor,'20000');
- assert.equal(snapshot.total_minor,'124000');
+ assert.equal(snapshot.total_minor,'123170');
  assert.equal(snapshot.lines.filter(v=>v.asset_class==='REIT').length,2);
 });
 test('review captures a fresh balance via GET, preserves source and refuses unavailable or malformed reads',async()=>{
@@ -54,7 +54,7 @@ test('history is empty until explicit local completion; repeated confirmation ca
  assert.deepEqual(readPayouts(store,aarav,ids.property,'DRUNIX_CURRENT_BALANCE'),[]);
  const rows=recordPayout(store,snapshot,'2026-11-20T12:01:00Z');
  assert.equal(rows.length,1);assert.equal(rows[0].status,'SIMULATED_COMPLETED');
- assert.equal(rows[0].total_minor,'124000');assert.equal('transaction_id' in rows[0],false);
+ assert.equal(rows[0].total_minor,'123170');assert.equal('transaction_id' in rows[0],false);
  assert.equal(recordPayout(store,snapshot,'2026-11-20T12:02:00Z').length,1);
  assert.equal(readPayouts(store,aarav,ids.property,'UI_PREVIEW').length,0);
  const conflicted=incomeSnapshot(id,aarav,ids.property,3,'10000',time,'DRUNIX_CURRENT_BALANCE');

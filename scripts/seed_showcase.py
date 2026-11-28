@@ -119,6 +119,17 @@ def operator_step(action: str, reference: str) -> None:
     subprocess.run([str(BACKEND_PYTHON), "-m", "app.registration_operator", action, reference], cwd=ROOT / "backend", check=True)
 
 
+def reconcile_if_unresolved(base: str, token: str, result: dict, endpoint: str) -> dict:
+    """Resolve a persisted operation without ever creating a replacement."""
+    state = result.get("state")
+    if state in {"PREPARING", "PREPARED", "SUBMISSION_PENDING", "SUBMITTED", "UNKNOWN"}:
+        operation_id = result.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id:
+            raise RuntimeError(f"Unresolved {endpoint} operation has no operation_id; reconcile manually before retrying")
+        result = api(base, token, f"{endpoint}/{operation_id}/reconcile", "POST")
+    return result
+
+
 def database_path() -> Path:
     url = os.environ.get("DATABASE_URL", "sqlite:///" + str(Path.home() / ".local/share/tokansh/tokansh.db"))
     if not url.startswith("sqlite:///"):
@@ -214,21 +225,20 @@ def apply(base: str) -> None:
             operator_step("reconcile", operation_id)
         finally:
             Path(command_path).unlink(missing_ok=True)
-        api(base, token, "/api/v1/ansh/issuances", "POST", {
+        issuance = api(base, token, "/api/v1/ansh/issuances", "POST", {
             "property_id": existing["id"], "quantity": item.supply,
             "issue_price_minor": "100000", "currency": "INR",
         }, "showcase-issuance-" + item.symbol)
+        issuance = reconcile_if_unresolved(base, token, issuance, "/api/v1/ansh/issuances")
+        if issuance.get("state") != "COMMITTED_VALID":
+            raise RuntimeError(f"Issuance {item.symbol} did not commit: {issuance.get('state')}")
         for name, quantity in ALLOCATIONS[item.symbol].items():
             recipient = "00000000-0000-4000-8000-000000000003" if name == "Aarav" else INVESTOR_IDS[name]
             transfer = api(base, token, "/api/v1/ansh/transfers", "POST", {
                 "asset_id": existing["id"], "from_user_id": MEERA_ID, "to_user_id": recipient,
                 "quantity": quantity, "kind": "TRANSFER", "payment_outcome": "SUCCESS",
             }, "showcase-transfer-" + item.symbol + "-" + name.lower())
-            if transfer.get("state") == "UNKNOWN":
-                operation_id = transfer.get("operation_id")
-                if not operation_id:
-                    raise RuntimeError(f"Unknown transfer outcome for {item.symbol}/{name}; reconcile manually before retrying")
-                transfer = api(base, token, f"/api/v1/ansh/transfers/{operation_id}/reconcile", "POST")
+            transfer = reconcile_if_unresolved(base, token, transfer, "/api/v1/ansh/transfers")
             if transfer.get("state") != "COMMITTED_VALID":
                 raise RuntimeError(f"Transfer {item.symbol}/{name} did not commit: {transfer.get('state')}")
         offerings = api(base, token, "/api/v1/marketplace/offerings")

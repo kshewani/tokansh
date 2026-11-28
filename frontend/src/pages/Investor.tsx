@@ -19,6 +19,7 @@ import {Card,Metric,SectionHeading} from '../components/ui/card';
 import {Button} from '../components/ui/button';
 import {DataRow,Field,SelectField} from '../components/ui/form';
 import {ReviewDialog} from '../components/ui/dialog';
+import {reitHoldingsFor} from '../demo/investments';
 
 export function LedgerBalances(){
  const {session}=useApp(),{balances,live}=useInvestor();
@@ -138,6 +139,6 @@ export function ConnectedPortfolio({dashboard=false}:{dashboard?:boolean}){
    {held.length===0?<p className="text-sm text-slate-500">No confirmed property holdings are available for this investor.</p>:<div className="data-table-wrap"><table className="data-table w-full"><thead><tr><th>Property</th><th>ANSH identity</th><th className="money">Held</th><th className="money">Issued</th><th className="money">Ownership</th><th className="money">Indicative value</th><th>Actions</th></tr></thead><tbody>{held.map(item=><tr key={item.property_id}><td><strong>{item.name}</strong><span className="block text-xs text-slate-500">{item.category} · {item.location}</span></td><td className="font-mono text-xs" title={propertyTokenId(item.property_id)}>{propertyDisplaySymbol(item.property_id,item.ansh_symbol)}</td><td className="money">{item.owned_units!.toLocaleString('en-IN')}</td><td className="money">{item.issued_supply!.toLocaleString('en-IN')}</td><td className="money">{ownership(item.owned_units!,item.issued_supply!)}</td><td className="money">{moneyINR(String(BigInt(item.owned_units!)*BigInt(item.initial_issue_price_minor)))}<span className="block text-[10px] text-slate-500">Initial issue price</span></td><td><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="ghost"><Link to={`/intelligence?property=${encodeURIComponent(item.property_id)}`}>Research</Link></Button><Button asChild size="sm" variant="ghost"><Link to={`/collateral?property=${encodeURIComponent(item.property_id)}`}>Finance</Link></Button><Button asChild size="sm" variant="ghost"><Link to={`/distributions?property=${encodeURIComponent(item.property_id)}`}>Income</Link></Button></div></td></tr>)}</tbody></table></div>}
    <p className="mt-4 text-xs text-slate-500">Indicative value at initial issue price. This is not a live market price, return, legal title or payout evidence.</p>
   </Card>
-  <div className="mt-5 grid gap-5 xl:grid-cols-2"><FinancingSummary/><ReitHoldingsCard/></div>
+  <div className="mt-5 grid gap-5 xl:grid-cols-2"><FinancingSummary/><ReitHoldingsCard holdings={reitHoldingsFor(session?.user_id)}/></div>
  </>;
 }

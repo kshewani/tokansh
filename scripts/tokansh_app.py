@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 REPO = Path(__file__).resolve().parents[1]
 PORTS = {'gateway': 8001, 'backend': 8000, 'frontend': 5173}
-REQUIRED_SCHEMA_REVISION = '0004_marketplace'
+REQUIRED_SCHEMA_REVISION = '0005_showcase_metadata'
 INFO = dict(contract='tokansh', schema_version=1,
             functions=['GetContractInfo', 'GetRegisteredProperty', 'GetOperation', 'RegisterApprovedProperty'],
             supply_interpretation='LIFETIME_CUMULATIVE_ISSUANCE_CEILING')
