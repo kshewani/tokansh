@@ -108,6 +108,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .premium-app .gold-icon{display:grid;place-items:center;height:2.65rem;width:2.65rem;border:1px solid rgba(245,215,142,.4);border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.35),rgba(212,175,55,.08));color:var(--premium-champagne)}
 .premium-app .login-surface{background:radial-gradient(circle at 18% 20%,rgba(212,175,55,.16),transparent 28%),linear-gradient(145deg,#0b111b,#080c13)}
 .premium-app .login-panel{background:linear-gradient(145deg,rgba(17,25,37,.98),rgba(12,19,30,.98));border:1px solid rgba(212,175,55,.32);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.premium-app .login-role-option{background:#111925!important;border-color:#2b3647!important;color:#f5f1e8!important}.premium-app .login-role-option:hover{border-color:#d4af37!important;background:#192331!important}.premium-app .login-role-option.is-selected{background:rgba(212,175,55,.14)!important;border-color:#d4af37!important;box-shadow:inset 0 0 0 1px rgba(245,215,142,.16)}.premium-app .login-role-option strong{color:#f5f1e8!important}.premium-app .login-role-option input{accent-color:#d4af37}
 .premium-app .login-brand{font-family:Georgia,serif;color:var(--premium-text);font-size:1.5rem;font-weight:700;letter-spacing:.03em}
 .premium-app .login-brand span{color:var(--premium-champagne)}
 .premium-app .mobile-menu-button{border:1px solid rgba(245,215,142,.38);color:var(--premium-champagne);background:rgba(17,25,37,.9)}

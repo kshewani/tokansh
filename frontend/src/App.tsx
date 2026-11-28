@@ -63,7 +63,7 @@ function Login(){
     <Card className="login-panel">
      <form onSubmit={enter}>
       <fieldset className="space-y-3"><legend className="mb-3 text-sm font-bold text-[#102B4E]">Choose an account</legend>
-       {roleOptions.map(item=><label key={item.role} className={'flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors '+(selectedRole===item.role?'border-[#1769AA] bg-blue-50':'border-slate-200 bg-white hover:border-blue-300')}>
+       {roleOptions.map(item=><label key={item.role} className={'login-role-option flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors '+(selectedRole===item.role?'is-selected':'')}>
         <input className="mt-1 accent-[#1769AA]" type="radio" name="demo-role" value={item.role} checked={selectedRole===item.role} onChange={()=>setSelectedRole(item.role)}/>
         <span><strong className="text-sm text-[#102B4E]">{item.label}</strong><span className="mt-1 block text-xs leading-5 text-slate-500">{item.description}</span></span>
        </label>)}
